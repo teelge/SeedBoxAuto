@@ -86,18 +86,36 @@ prepare_paths() {
 }
 
 maybe_clean_install() {
+  # Full reset: docker stack + all app configs for this user
   if [[ -f "$COMPOSE_FILE" ]]; then
-    if ask_yn "Existing Docker setup found. Do CLEAN install?"; then
-      echo "🔹 Removing old Docker setup..."
+    if ask_yn "Existing Docker setup found. Do CLEAN install (this will DELETE all app settings and configs)?"; then
+      echo "🔹 Removing old Docker setup and configs..."
+
+      # Stop and remove containers from this compose file
       if command -v docker-compose >/dev/null 2>&1; then
         docker-compose -f "$COMPOSE_FILE" down || true
       elif docker compose version >/dev/null 2>&1; then
         docker compose -f "$COMPOSE_FILE" down || true
       fi
+
+      # Remove compose directory
       rm -rf "$COMPOSE_DIR"
+
+      # Remove individual app config directories to force true first-run
+      rm -rf \
+        "$USER_HOME/sonarr" \
+        "$USER_HOME/radarr" \
+        "$USER_HOME/qbittorrent" \
+        "$USER_HOME/bazarr" \
+        "$USER_HOME/prowlarr" \
+        "$USER_HOME/listenarr" \
+        "$USER_HOME/jackett"
+
+      # Recreate compose dir
       mkdir -p "$COMPOSE_DIR"
       chown -R "$SEEDUSER:$SEEDUSER" "$COMPOSE_DIR"
-      echo "✅ Clean install prepared"
+
+      echo "✅ Clean install prepared (all previous app settings removed)"
     fi
   fi
 }
@@ -105,7 +123,7 @@ maybe_clean_install() {
 detect_compose_cmd() {
   if docker compose version >/dev/null 2>&1; then
     DOCKER_COMPOSE="docker compose"
-  elif command -v docker-compose >/dev/null 2>&1; then
+  elif command -v docker-compose >/devnull 2>&1; then
     DOCKER_COMPOSE="docker-compose"
   else
     DOCKER_COMPOSE=""
@@ -244,7 +262,7 @@ EOF
 ""
   fi
 
-  # Listenarr – uses media + downloads, no audiobooks folder
+  # Listenarr
   if [[ "${INSTALL[listenarr]:-n}" == "y" ]]; then
     cat >> "$COMPOSE_FILE" <<EOF
   listenarr:
