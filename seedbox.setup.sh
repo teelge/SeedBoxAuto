@@ -67,7 +67,7 @@ mkdir -p "$USER_HOME/docker" \
 
 COMPOSE_FILE="$USER_HOME/docker/docker-compose.yml"
 
-# Ask if user wants a clean install
+# Check for existing containers for a clean install
 existing_containers=$(docker ps -a --format '{{.Names}}' | grep -E "sonarr|radarr|qbittorrent|bazarr|prowlarr|listenarr|jackett" || true)
 if [[ -n "$existing_containers" ]]; then
     echo "⚠️ Existing containers detected: $existing_containers"
@@ -100,81 +100,86 @@ echo "version: '3.8'" > "$COMPOSE_FILE"
 echo "services:" >> "$COMPOSE_FILE"
 TZ="America/New_York"
 
-# Append service to compose file safely
+# Safe YAML service appender
 add_service() {
     IMAGE_NAME="$2"
+    SERVICE_NAME="$1"
+    EXTRA="$3"
+
     cat >> "$COMPOSE_FILE" <<EOL
-  $1:
+  $SERVICE_NAME:
     image: "$IMAGE_NAME"
-    container_name: "$1"
+    container_name: "$SERVICE_NAME"
     environment:
       - PUID=$(id -u $username)
       - PGID=$(id -g $username)
       - TZ=$TZ
 EOL
 
-    if [[ -n "$3" ]]; then
-        echo "$3" | sed 's/^/    /' >> "$COMPOSE_FILE"
+    if [[ -n "$EXTRA" ]]; then
+        while IFS= read -r line; do
+            echo "    $line" >> "$COMPOSE_FILE"
+        done <<< "$EXTRA"
     fi
 
     echo "    restart: unless-stopped" >> "$COMPOSE_FILE"
 }
 
 # Sonarr
-[[ "$install_sonarr" == "y" ]] && add_service "sonarr" "ghcr.io/linuxserver/sonarr:latest" "    volumes:
-      - $USER_HOME/sonarr:/config
-      - $USER_HOME/media/tv:/tv
-      - $USER_HOME/media/downloads:/downloads
-    ports:
-      - 8989:8989"
+[[ "$install_sonarr" == "y" ]] && add_service "sonarr" "ghcr.io/linuxserver/sonarr:latest" "volumes:
+  - $USER_HOME/sonarr:/config
+  - $USER_HOME/media/tv:/tv
+  - $USER_HOME/media/downloads:/downloads
+ports:
+  - 8989:8989"
 
 # Radarr
-[[ "$install_radarr" == "y" ]] && add_service "radarr" "ghcr.io/linuxserver/radarr:latest" "    volumes:
-      - $USER_HOME/radarr:/config
-      - $USER_HOME/media/movies:/movies
-      - $USER_HOME/media/downloads:/downloads
-    ports:
-      - 7878:7878"
+[[ "$install_radarr" == "y" ]] && add_service "radarr" "ghcr.io/linuxserver/radarr:latest" "volumes:
+  - $USER_HOME/radarr:/config
+  - $USER_HOME/media/movies:/movies
+  - $USER_HOME/media/downloads:/downloads
+ports:
+  - 7878:7878"
 
 # qBittorrent
-[[ "$install_qbittorrent" == "y" ]] && add_service "qbittorrent" "ghcr.io/linuxserver/qbittorrent:latest" "    environment:
-      - WEBUI_PORT=8080
-    volumes:
-      - $USER_HOME/qbittorrent:/config
-      - $USER_HOME/media/downloads:/downloads
-    ports:
-      - 8080:8080
-      - 6881:6881
-      - 6881:6881/udp"
+[[ "$install_qbittorrent" == "y" ]] && add_service "qbittorrent" "ghcr.io/linuxserver/qbittorrent:latest" "environment:
+  - WEBUI_PORT=8080
+volumes:
+  - $USER_HOME/qbittorrent:/config
+  - $USER_HOME/media/downloads:/downloads
+ports:
+  - 8080:8080
+  - 6881:6881
+  - 6881:6881/udp"
 
 # Bazarr
-[[ "$install_bazarr" == "y" ]] && add_service "bazarr" "ghcr.io/linuxserver/bazarr:latest" "    volumes:
-      - $USER_HOME/bazarr:/config
-      - $USER_HOME/media/tv:/tv
-      - $USER_HOME/media/movies:/movies
-    ports:
-      - 6767:6767"
+[[ "$install_bazarr" == "y" ]] && add_service "bazarr" "ghcr.io/linuxserver/bazarr:latest" "volumes:
+  - $USER_HOME/bazarr:/config
+  - $USER_HOME/media/tv:/tv
+  - $USER_HOME/media/movies:/movies
+ports:
+  - 6767:6767"
 
 # Prowlarr
-[[ "$install_prowlarr" == "y" ]] && add_service "prowlarr" "ghcr.io/linuxserver/prowlarr:latest" "    volumes:
-      - $USER_HOME/prowlarr:/config
-    ports:
-      - 9696:9696"
+[[ "$install_prowlarr" == "y" ]] && add_service "prowlarr" "ghcr.io/linuxserver/prowlarr:latest" "volumes:
+  - $USER_HOME/prowlarr:/config
+ports:
+  - 9696:9696"
 
 # Listenarr
-[[ "$install_listenarr" == "y" ]] && add_service "listenarr" "ghcr.io/therobbiedavis/listenarr:canary" "    volumes:
-      - $USER_HOME/listenarr:/app/config
-      - $USER_HOME/media/music:/music
-      - $USER_HOME/media/downloads:/downloads
-    ports:
-      - 4545:4545"
+[[ "$install_listenarr" == "y" ]] && add_service "listenarr" "ghcr.io/therobbiedavis/listenarr:canary" "volumes:
+  - $USER_HOME/listenarr:/app/config
+  - $USER_HOME/media/music:/music
+  - $USER_HOME/media/downloads:/downloads
+ports:
+  - 4545:4545"
 
 # Jackett
-[[ "$install_jackett" == "y" ]] && add_service "jackett" "ghcr.io/linuxserver/jackett:latest" "    volumes:
-      - $USER_HOME/jackett:/config
-      - $USER_HOME/media/downloads:/downloads
-    ports:
-      - 9117:9117"
+[[ "$install_jackett" == "y" ]] && add_service "jackett" "ghcr.io/linuxserver/jackett:latest" "volumes:
+  - $USER_HOME/jackett:/config
+  - $USER_HOME/media/downloads:/downloads
+ports:
+  - 9117:9117"
 
 echo "✅ Docker Compose file created at $COMPOSE_FILE"
 
