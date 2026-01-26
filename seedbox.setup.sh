@@ -11,6 +11,23 @@ fi
 
 echo "✅ Running as root"
 
+# Detect internal IP
+INTERNAL_IP=$(hostname -I | awk '{print $1}')
+if [[ -z "$INTERNAL_IP" ]]; then
+    INTERNAL_IP="127.0.0.1"
+fi
+echo "ℹ️ Detected internal IP: $INTERNAL_IP"
+
+# Detect external IP
+EXTERNAL_IP=$(curl -s https://api.ipify.org || echo "UNKNOWN")
+if [[ "$EXTERNAL_IP" == "UNKNOWN" ]]; then
+    echo "⚠️ Could not detect external IP automatically."
+else
+    echo "ℹ️ Detected external IP: $EXTERNAL_IP"
+fi
+
+echo "⚠️ If you want to access these apps from outside your network, make sure ports are open on your router/firewall."
+
 # List existing non-root users
 existing_users=$(awk -F: '$3>=1000 && $1!="nobody" {print $1}' /etc/passwd)
 
@@ -125,7 +142,7 @@ EOL
     echo "    restart: unless-stopped" >> "$COMPOSE_FILE"
 }
 
-# Add services
+# Add services with correct ports
 [[ "$install_sonarr" == "y" ]] && add_service "sonarr" "ghcr.io/linuxserver/sonarr:latest" "volumes:
   - $USER_HOME/sonarr:/config
   - $USER_HOME/media/tv:/tv
@@ -181,15 +198,19 @@ echo "✅ Docker Compose file created at $COMPOSE_FILE"
 cd "$USER_HOME/docker"
 docker-compose up -d
 
-# ✅ Display summary of running containers
+# ✅ Display summary of running containers with URLs
 echo
 echo "📊 Summary of running seedbox apps:"
-for c in sonarr radarr qbittorrent bazarr prowlarr listenarr jackett; do
-    if [[ "$(docker ps -q -f name=$c)" ]]; then
-        PORTS=$(docker ps -f name=$c --format '{{.Ports}}')
-        echo " - $c : UP (Ports: $PORTS)"
+for app in sonarr radarr qbittorrent bazarr prowlarr listenarr jackett; do
+    if [[ "$(docker ps -q -f name=$app)" ]]; then
+        PORT=$(docker ps -f name=$app --format '{{.Ports}}' | grep -o '[0-9]\{2,5\}->' | head -n1 | grep -o '[0-9]\{2,5\}')
+        echo " - $app : UP"
+        echo "     Internal URL: http://$INTERNAL_IP:$PORT"
+        if [[ "$EXTERNAL_IP" != "UNKNOWN" ]]; then
+            echo "     External URL: http://$EXTERNAL_IP:$PORT ⚠️ Make sure port is open"
+        fi
     else
-        echo " - $c : NOT RUNNING"
+        echo " - $app : NOT RUNNING"
     fi
 done
 
