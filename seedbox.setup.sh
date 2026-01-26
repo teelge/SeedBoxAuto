@@ -58,8 +58,26 @@ if [[ -z "$username" ]]; then
     USER_HOME=$(eval echo "~$username")
 fi
 
-mkdir -p "$USER_HOME/docker"
+# Ensure media and docker directories exist
+mkdir -p "$USER_HOME/docker" \
+         "$USER_HOME/media/tv" \
+         "$USER_HOME/media/movies" \
+         "$USER_HOME/media/music" \
+         "$USER_HOME/media/downloads"
+
 COMPOSE_FILE="$USER_HOME/docker/docker-compose.yml"
+
+# Ask if user wants a clean install
+existing_containers=$(docker ps -a --format '{{.Names}}' | grep -E "sonarr|radarr|qbittorrent|bazarr|prowlarr|listenarr|jackett" || true)
+if [[ -n "$existing_containers" ]]; then
+    echo "⚠️ Existing containers detected: $existing_containers"
+    read -p "Do you want to remove existing containers for a clean install? (y/n): " clean_install
+    if [[ "$clean_install" == "y" ]]; then
+        echo "Stopping and removing containers..."
+        docker rm -f $existing_containers || true
+        echo "✅ Existing containers removed"
+    fi
+fi
 
 # Ask which apps to install
 echo "Which apps do you want to install? (y/n)"
@@ -82,20 +100,24 @@ echo "version: '3.8'" > "$COMPOSE_FILE"
 echo "services:" >> "$COMPOSE_FILE"
 TZ="America/New_York"
 
-# Append service to compose file
+# Append service to compose file safely
 add_service() {
-    IMAGE_NAME="$2"  # Full image with tag
+    IMAGE_NAME="$2"
     cat >> "$COMPOSE_FILE" <<EOL
   $1:
-    image: $IMAGE_NAME
-    container_name: $1
+    image: "$IMAGE_NAME"
+    container_name: "$1"
     environment:
       - PUID=$(id -u $username)
       - PGID=$(id -g $username)
       - TZ=$TZ
-$3
-    restart: unless-stopped
 EOL
+
+    if [[ -n "$3" ]]; then
+        echo "$3" | sed 's/^/    /' >> "$COMPOSE_FILE"
+    fi
+
+    echo "    restart: unless-stopped" >> "$COMPOSE_FILE"
 }
 
 # Sonarr
@@ -139,7 +161,7 @@ EOL
     ports:
       - 9696:9696"
 
-# Listenarr (therobbiedavis canary)
+# Listenarr
 [[ "$install_listenarr" == "y" ]] && add_service "listenarr" "ghcr.io/therobbiedavis/listenarr:canary" "    volumes:
       - $USER_HOME/listenarr:/app/config
       - $USER_HOME/media/music:/music
