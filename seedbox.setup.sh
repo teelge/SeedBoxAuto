@@ -203,7 +203,12 @@ echo
 echo "📊 Summary of running seedbox apps:"
 for app in sonarr radarr qbittorrent bazarr prowlarr listenarr jackett; do
     if [[ "$(docker ps -q -f name=$app)" ]]; then
-        PORT=$(docker ps -f name=$app --format '{{.Ports}}' | grep -o '[0-9]\{2,5\}->' | head -n1 | grep -o '[0-9]\{2,5\}')
+        # Pick the correct port for Web UI
+        if [[ "$app" == "qbittorrent" ]]; then
+            PORT=8080
+        else
+            PORT=$(docker ps -f name=$app --format '{{.Ports}}' | grep -o '[0-9]\{2,5\}->' | head -n1 | grep -o '[0-9]\{2,5\}')
+        fi
         echo " - $app : UP"
         echo "     Internal URL: http://$INTERNAL_IP:$PORT"
         if [[ "$EXTERNAL_IP" != "UNKNOWN" ]]; then
