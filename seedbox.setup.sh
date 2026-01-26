@@ -13,40 +13,62 @@ fi
 
 echo "✅ Running as root"
 
-# Ask for new user info
-read -p "Enter the new username: " username
+# List existing non-root users
+existing_users=$(awk -F: '$3>=1000 && $1!="nobody" {print $1}' /etc/passwd)
 
-# Basic validation
-if [[ ! "$username" =~ ^[a-z_][a-z0-9_-]*$ ]]; then
-    echo "❌ Invalid username."
-    exit 1
+USER_HOME=""
+username=""
+
+if [[ -n "$existing_users" ]]; then
+    echo "Existing non-root users detected:"
+    echo "$existing_users"
+    read -p "Do you want to use an existing user? (y/n): " use_existing
+    if [[ "$use_existing" == "y" ]]; then
+        read -p "Enter the username to use: " username
+        if ! id "$username" &>/dev/null; then
+            echo "❌ User '$username' does not exist."
+            exit 1
+        fi
+        USER_HOME=$(eval echo "~$username")
+    fi
 fi
 
-# Check if user exists
-if id "$username" &>/dev/null; then
-    echo "❌ User '$username' already exists."
-    exit 1
+# If no existing user selected, create a new one
+if [[ -z "$username" ]]; then
+    read -p "Enter the new username: " username
+
+    # Basic validation
+    if [[ ! "$username" =~ ^[a-z_][a-z0-9_-]*$ ]]; then
+        echo "❌ Invalid username."
+        exit 1
+    fi
+
+    # Check if user exists
+    if id "$username" &>/dev/null; then
+        echo "❌ User '$username' already exists."
+        exit 1
+    fi
+
+    # Ask for password
+    read -s -p "Enter password for $username: " password
+    echo
+    read -s -p "Retype password: " password2
+    echo
+    if [[ "$password" != "$password2" ]]; then
+        echo "❌ Passwords do not match."
+        exit 1
+    fi
+
+    # Create user and add to sudo
+    echo "Creating user '$username'..."
+    adduser --quiet --gecos "" --disabled-password "$username"
+    echo "$username:$password" | chpasswd
+    usermod -aG sudo "$username"
+    echo "✅ User '$username' created and added to sudo"
+
+    USER_HOME=$(eval echo "~$username")
 fi
 
-# Ask for password
-read -s -p "Enter password for $username: " password
-echo
-read -s -p "Retype password: " password2
-echo
-if [[ "$password" != "$password2" ]]; then
-    echo "❌ Passwords do not match."
-    exit 1
-fi
-
-# Create user and add to sudo
-echo "Creating user '$username'..."
-adduser --quiet --gecos "" --disabled-password "$username"
-echo "$username:$password" | chpasswd
-usermod -aG sudo "$username"
-echo "✅ User '$username' created and added to sudo"
-
-# Get user's home directory
-USER_HOME=$(eval echo "~$username")
 mkdir -p "$USER_HOME/docker"
 COMPOSE_FILE="$USER_HOME/docker/docker-compose.yml"
 
@@ -137,7 +159,7 @@ add_service "prowlarr" "ghcr.io/linuxserver/prowlarr" "    volumes:
       - 9696:9696"
 fi
 
-# Listenarr (using public canary image with port 4545)
+# Listenarr (public canary image, port 4545)
 if [[ "$install_listenarr" == "y" ]]; then
 add_service "listenarr" "ghcr.io/therobbiedavis/listenarr:canary" "    volumes:
       - $USER_HOME/listenarr:/app/config
