@@ -1,201 +1,195 @@
-#!/usr/bin/env bash
-set -euo pipefail
-IFS=$'\n\t'
-
-STEP_DELAY=2
-MAX_WAIT=60
-
-log()     { echo -e "\n🔹 $1"; }
-success() { echo -e "✅ $1"; }
-warn()    { echo -e "⚠️ $1"; }
-fatal()   { echo -e "❌ $1"; exit 1; }
-
-compose() {
-    if docker compose version >/dev/null 2>&1; then
-        docker compose "$@"
-    else
-        docker-compose "$@"
-    fi
-}
+#!/bin/bash
+set -e
 
 echo "🚀 Seedbox setup started"
 
-[[ "$(id -u)" -ne 0 ]] && fatal "Please run as root"
-success "Running as root"
+# -------------------------
+# ROOT CHECK
+# -------------------------
+if [ "$EUID" -ne 0 ]; then
+  echo "❌ Please run as root"
+  exit 1
+fi
+echo "✅ Running as root"
 
-############################
-# USER
-############################
-USERS=$(awk -F: '$3 >= 1000 && $1 != "nobody"' /etc/passwd || true)
+# -------------------------
+# USER SELECTION
+# -------------------------
+USERS=$(awk -F: '$3>=1000 && $1!="nobody"{print $1}' /etc/passwd)
 
-if [[ -n "$USERS" ]]; then
-    echo "Existing non-root users detected:"
-    echo "$USERS"
-    read -rp "Do you want to use an existing user? (y/n): " use_existing
+if [ -n "$USERS" ]; then
+  echo "Existing non-root users detected:"
+  echo "$USERS"
+  read -p "Do you want to use an existing user? (y/n): " USE_EXISTING
+fi
+
+if [[ "$USE_EXISTING" == "y" ]]; then
+  read -p "Enter the username to use: " SEEDUSER
+  id "$SEEDUSER" >/dev/null 2>&1 || { echo "❌ User not found"; exit 1; }
 else
-    use_existing="n"
+  read -p "Enter new username: " SEEDUSER
+  adduser "$SEEDUSER"
 fi
 
-if [[ "$use_existing" == "y" ]]; then
-    read -rp "Enter the username to use: " USERNAME
-    id "$USERNAME" >/dev/null 2>&1 || fatal "User does not exist"
-else
-    read -rp "Enter the new username: " USERNAME
-    read -rsp "Enter password for $USERNAME: " PASS1; echo
-    read -rsp "Retype password: " PASS2; echo
-    [[ "$PASS1" != "$PASS2" ]] && fatal "Passwords do not match"
-    useradd -m -s /bin/bash "$USERNAME"
-    echo "$USERNAME:$PASS1" | chpasswd
-    success "User created"
+USER_HOME=$(eval echo "~$SEEDUSER")
+PUID=$(id -u "$SEEDUSER")
+PGID=$(id -g "$SEEDUSER")
+
+# -------------------------
+# CLEAN INSTALL CHECK
+# -------------------------
+COMPOSE_DIR="$USER_HOME/docker"
+COMPOSE_FILE="$COMPOSE_DIR/docker-compose.yml"
+
+if [ -f "$COMPOSE_FILE" ]; then
+  read -p "Existing Docker setup found. Do CLEAN install? (y/n): " CLEAN
+  if [[ "$CLEAN" == "y" ]]; then
+    echo "🔹 Removing old Docker setup..."
+    docker-compose -f "$COMPOSE_FILE" down || true
+    rm -rf "$COMPOSE_DIR"
+    echo "✅ Clean install prepared"
+  fi
 fi
 
-USER_HOME="/home/$USERNAME"
-DOCKER_DIR="$USER_HOME/docker"
-COMPOSE_FILE="$DOCKER_DIR/docker-compose.yml"
-
-############################
-# CLEAN INSTALL
-############################
-if [[ -f "$COMPOSE_FILE" ]]; then
-    read -rp "Existing Docker setup found. Do CLEAN install? (y/n): " CLEAN
-    if [[ "$CLEAN" == "y" ]]; then
-        log "Removing old Docker setup..."
-        compose -f "$COMPOSE_FILE" down || true
-        rm -rf "$DOCKER_DIR"
-        success "Clean install prepared"
-    fi
-fi
-
-############################
-# DOCKER
-############################
-log "Checking Docker..."
+# -------------------------
+# DOCKER INSTALL
+# -------------------------
+echo "🔹 Checking Docker..."
 if ! command -v docker >/dev/null 2>&1; then
-    apt update -y
-    apt install -y docker.io docker-compose
+  curl -fsSL https://get.docker.com | sh
 fi
-success "Docker installed"
+echo "✅ Docker installed"
 
-log "Waiting for Docker daemon..."
-for i in $(seq 1 $MAX_WAIT); do
-    docker info >/dev/null 2>&1 && break
-    sleep $STEP_DELAY
-done || fatal "Docker daemon failed"
-success "Docker daemon running"
+echo "🔹 Installing docker-compose..."
+if ! command -v docker-compose >/dev/null 2>&1; then
+  apt update -y
+  apt install -y docker-compose
+fi
+echo "✅ docker-compose ready"
 
-############################
+usermod -aG docker "$SEEDUSER"
+
+# -------------------------
+# WAIT FOR DOCKER
+# -------------------------
+echo "🔹 Waiting for Docker daemon..."
+until docker info >/dev/null 2>&1; do
+  sleep 2
+done
+echo "✅ Docker daemon running"
+
+# -------------------------
 # APP SELECTION
-############################
-declare -A APPS
+# -------------------------
+declare -A INSTALL
+
 for app in sonarr radarr qbittorrent bazarr prowlarr listenarr jackett; do
-    read -rp "Install $app? (y/n): " APPS[$app]
+  read -p "Install $app? (y/n): " INSTALL[$app]
 done
 
-############################
-# NETWORK
-############################
-INTERNAL_IP=$(hostname -I | awk '{print $1}')
-EXTERNAL_IP=$(curl -fsSL https://api.ipify.org || echo "UNKNOWN")
+mkdir -p "$COMPOSE_DIR"
+chown -R "$SEEDUSER:$SEEDUSER" "$COMPOSE_DIR"
 
-############################
-# COMPOSE FILE
-############################
-mkdir -p "$DOCKER_DIR"
-chown -R "$USERNAME:$USERNAME" "$DOCKER_DIR"
-
-PUID=$(id -u "$USERNAME")
-PGID=$(id -g "$USERNAME")
+# -------------------------
+# GENERATE COMPOSE FILE
+# -------------------------
+echo "🔹 Generating Docker Compose file..."
 
 cat > "$COMPOSE_FILE" <<EOF
 version: "3.8"
 services:
 EOF
 
-add() { echo "$1" >> "$COMPOSE_FILE"; }
-
-[[ "${APPS[qbittorrent]}" == "y" ]] && add "
-  qbittorrent:
-    image: ghcr.io/linuxserver/qbittorrent:latest
-    container_name: qbittorrent
+add_service () {
+cat >> "$COMPOSE_FILE" <<EOF
+  $1:
+    image: $2
+    container_name: $1
     environment:
       - PUID=$PUID
       - PGID=$PGID
-      - WEBUI_PORT=8080
+      - TZ=UTC
     volumes:
-      - $USER_HOME/qbittorrent:/config
-      - $USER_HOME/media/downloads:/downloads
+      - $USER_HOME/$1:/config
+$3
     ports:
-      - 8080:8080
-      - 6881:6881
-      - 6881:6881/udp
+      - $4
     restart: unless-stopped
-"
 
-[[ "${APPS[sonarr]}" == "y" ]] && add "
-  sonarr:
-    image: ghcr.io/linuxserver/sonarr:latest
-    container_name: sonarr
-    environment:
-      - PUID=$PUID
-      - PGID=$PGID
-    volumes:
-      - $USER_HOME/sonarr:/config
-      - $USER_HOME/media/tv:/tv
-      - $USER_HOME/media/downloads:/downloads
-    ports:
-      - 8989:8989
-    restart: unless-stopped
-"
-
-[[ "${APPS[radarr]}" == "y" ]] && add "
-  radarr:
-    image: ghcr.io/linuxserver/radarr:latest
-    container_name: radarr
-    environment:
-      - PUID=$PUID
-      - PGID=$PGID
-    volumes:
-      - $USER_HOME/radarr:/config
-      - $USER_HOME/media/movies:/movies
-      - $USER_HOME/media/downloads:/downloads
-    ports:
-      - 7878:7878
-    restart: unless-stopped
-"
-
-success "Docker Compose file created at $COMPOSE_FILE"
-
-############################
-# START
-############################
-log "Starting containers..."
-compose -f "$COMPOSE_FILE" up -d
-success "Containers started"
-
-############################
-# QB PASSWORD
-############################
-if [[ "${APPS[qbittorrent]}" == "y" ]]; then
-    log "Waiting for qBittorrent credentials..."
-    for i in $(seq 1 $MAX_WAIT); do
-        QB_PASS=$(docker logs qbittorrent 2>&1 | grep -oP 'temporary password is provided for this session: \K\w+' | tail -n1)
-        [[ -n "$QB_PASS" ]] && break
-        sleep $STEP_DELAY
-    done
-fi
-
-############################
-# SUMMARY
-############################
-echo
-echo "📊 Access URLs:"
-print() {
-  echo " - $1:"
-  echo "     http://$INTERNAL_IP:$2"
-  [[ "$EXTERNAL_IP" != "UNKNOWN" ]] && echo "     http://$EXTERNAL_IP:$2 ⚠️ open port"
+EOF
 }
 
-[[ "${APPS[qbittorrent]}" == "y" ]] && print qbittorrent 8080
-[[ -n "${QB_PASS:-}" ]] && echo -e "\n🔑 qBittorrent login → admin / $QB_PASS"
+[ "${INSTALL[sonarr]}" = "y" ] && add_service sonarr ghcr.io/linuxserver/sonarr:latest "      - $USER_HOME/media/tv:/tv
+      - $USER_HOME/media/downloads:/downloads" "8989:8989"
 
-success "Seedbox setup complete 🎉"
+[ "${INSTALL[radarr]}" = "y" ] && add_service radarr ghcr.io/linuxserver/radarr:latest "      - $USER_HOME/media/movies:/movies
+      - $USER_HOME/media/downloads:/downloads" "7878:7878"
+
+[ "${INSTALL[qbittorrent]}" = "y" ] && add_service qbittorrent ghcr.io/linuxserver/qbittorrent:latest "      - $USER_HOME/media/downloads:/downloads
+      - $USER_HOME/qbittorrent:/config" "8080:8080"
+
+[ "${INSTALL[bazarr]}" = "y" ] && add_service bazarr ghcr.io/linuxserver/bazarr:latest "      - $USER_HOME/media:/media" "6767:6767"
+
+[ "${INSTALL[prowlarr]}" = "y" ] && add_service prowlarr ghcr.io/linuxserver/prowlarr:latest "" "9696:9696"
+
+if [ "${INSTALL[listenarr]}" = "y" ]; then
+cat >> "$COMPOSE_FILE" <<EOF
+  listenarr:
+    image: ghcr.io/therobbiedavis/listenarr:canary
+    container_name: listenarr
+    user: "$PUID:$PGID"
+    volumes:
+      - $USER_HOME/listenarr:/app/config
+    ports:
+      - 4545:4545
+    restart: unless-stopped
+
+EOF
+fi
+
+[ "${INSTALL[jackett]}" = "y" ] && add_service jackett ghcr.io/linuxserver/jackett:latest "" "9117:9117"
+
+chown "$SEEDUSER:$SEEDUSER" "$COMPOSE_FILE"
+echo "✅ Docker Compose file created at $COMPOSE_FILE"
+
+# -------------------------
+# START CONTAINERS
+# -------------------------
+echo "🔹 Starting containers..."
+docker-compose -f "$COMPOSE_FILE" up -d
+sleep 5
+
+# -------------------------
+# IP DETECTION
+# -------------------------
+INTERNAL_IP=$(hostname -I | awk '{print $1}')
+EXTERNAL_IP=$(curl -s https://api.ipify.org || echo "UNKNOWN")
+
+# -------------------------
+# STATUS + URL OUTPUT
+# -------------------------
+echo
+echo "📊 Summary of running seedbox apps:"
+
+for c in sonarr radarr qbittorrent bazarr prowlarr listenarr jackett; do
+  if docker ps --format '{{.Names}}' | grep -q "^$c$"; then
+    PORT=$(docker port $c | head -n1 | awk -F: '{print $2}')
+    echo " - $c : UP"
+    echo "     Internal URL: http://$INTERNAL_IP:$PORT"
+    if [ "$EXTERNAL_IP" != "UNKNOWN" ]; then
+      echo "     External URL: http://$EXTERNAL_IP:$PORT ⚠️ Make sure port is open"
+    fi
+  fi
+done
+
+# -------------------------
+# QBITTORRENT PASSWORD
+# -------------------------
+if docker ps --format '{{.Names}}' | grep -q "^qbittorrent$"; then
+  echo
+  echo "🔐 qBittorrent credentials:"
+  docker logs qbittorrent 2>/dev/null | grep "temporary password" | tail -n1
+fi
+
+echo
+echo "✅ Seedbox setup complete"
