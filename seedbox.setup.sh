@@ -95,9 +95,10 @@ TZ="America/New_York"
 
 # Functions to append each app
 add_service() {
+    IMAGE_NAME="$2"  # Full image name including tag if needed
     cat >> "$COMPOSE_FILE" <<EOL
   $1:
-    image: $2:latest
+    image: $IMAGE_NAME
     container_name: $1
     environment:
       - PUID=$(id -u $username)
@@ -110,7 +111,7 @@ EOL
 
 # Sonarr
 if [[ "$install_sonarr" == "y" ]]; then
-add_service "sonarr" "ghcr.io/linuxserver/sonarr" "    volumes:
+add_service "sonarr" "ghcr.io/linuxserver/sonarr:latest" "    volumes:
       - $USER_HOME/sonarr:/config
       - $USER_HOME/media/tv:/tv
       - $USER_HOME/media/downloads:/downloads
@@ -120,7 +121,7 @@ fi
 
 # Radarr
 if [[ "$install_radarr" == "y" ]]; then
-add_service "radarr" "ghcr.io/linuxserver/radarr" "    volumes:
+add_service "radarr" "ghcr.io/linuxserver/radarr:latest" "    volumes:
       - $USER_HOME/radarr:/config
       - $USER_HOME/media/movies:/movies
       - $USER_HOME/media/downloads:/downloads
@@ -130,7 +131,7 @@ fi
 
 # qBittorrent
 if [[ "$install_qbittorrent" == "y" ]]; then
-add_service "qbittorrent" "ghcr.io/linuxserver/qbittorrent" "    environment:
+add_service "qbittorrent" "ghcr.io/linuxserver/qbittorrent:latest" "    environment:
       - WEBUI_PORT=8080
     volumes:
       - $USER_HOME/qbittorrent:/config
@@ -143,7 +144,7 @@ fi
 
 # Bazarr
 if [[ "$install_bazarr" == "y" ]]; then
-add_service "bazarr" "ghcr.io/linuxserver/bazarr" "    volumes:
+add_service "bazarr" "ghcr.io/linuxserver/bazarr:latest" "    volumes:
       - $USER_HOME/bazarr:/config
       - $USER_HOME/media/tv:/tv
       - $USER_HOME/media/movies:/movies
@@ -153,7 +154,7 @@ fi
 
 # Prowlarr
 if [[ "$install_prowlarr" == "y" ]]; then
-add_service "prowlarr" "ghcr.io/linuxserver/prowlarr" "    volumes:
+add_service "prowlarr" "ghcr.io/linuxserver/prowlarr:latest" "    volumes:
       - $USER_HOME/prowlarr:/config
     ports:
       - 9696:9696"
@@ -171,7 +172,7 @@ fi
 
 # Jackett
 if [[ "$install_jackett" == "y" ]]; then
-add_service "jackett" "ghcr.io/linuxserver/jackett" "    volumes:
+add_service "jackett" "ghcr.io/linuxserver/jackett:latest" "    volumes:
       - $USER_HOME/jackett:/config
       - $USER_HOME/media/downloads:/downloads
     ports:
