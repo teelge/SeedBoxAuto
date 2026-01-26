@@ -2,6 +2,28 @@
 set -euo pipefail
 IFS=$'\n\t'
 
+print_qbittorrent_credentials() {
+  if ! docker ps --format '{{.Names}}' | grep -qx "qbittorrent"; then
+    return
+  fi
+
+  local logs username password
+
+  logs=$(docker logs qbittorrent 2>/dev/null || true)
+
+  username=$(echo "$logs" | awk -F': ' '/administrator username is:/ {print $2}' | tail -n1)
+  password=$(echo "$logs" | awk -F': ' '/temporary password is provided/ {print $NF}' | tail -n1)
+
+  if [[ -n "${username:-}" && -n "${password:-}" ]]; then
+    echo
+    echo "🔐 qBittorrent WebUI credentials (temporary):"
+    echo "     Username: $username"
+    echo "     Password: $password"
+    echo "     ⚠️ Change this password immediately in qBittorrent settings"
+  fi
+}
+
+
 main() {
   echo "🚀 Seedbox setup started"
 
@@ -80,23 +102,28 @@ prepare_paths() {
   mkdir -p "$COMPOSE_DIR"
   chown -R "$SEEDUSER:$SEEDUSER" "$COMPOSE_DIR"
 
+  # Make sure media exists and is owned correctly
   mkdir -p "$USER_HOME/media" "$USER_HOME/media/downloads"
   chown -R "$SEEDUSER:$SEEDUSER" "$USER_HOME/media"
 }
 
 maybe_clean_install() {
+  # Full reset: docker stack + all app configs for this user
   if [[ -f "$COMPOSE_FILE" ]]; then
     if ask_yn "Existing Docker setup found. Do CLEAN install (this will DELETE all app settings and configs)?"; then
       echo "🔹 Removing old Docker setup and configs..."
 
+      # Stop and remove containers from this compose file
       if command -v docker-compose >/dev/null 2>&1; then
         docker-compose -f "$COMPOSE_FILE" down || true
       elif docker compose version >/dev/null 2>&1; then
         docker compose -f "$COMPOSE_FILE" down || true
       fi
 
+      # Remove compose directory
       rm -rf "$COMPOSE_DIR"
 
+      # Remove individual app config directories to force true first-run
       rm -rf \
         "$USER_HOME/sonarr" \
         "$USER_HOME/radarr" \
@@ -106,6 +133,7 @@ maybe_clean_install() {
         "$USER_HOME/listenarr" \
         "$USER_HOME/jackett"
 
+      # Recreate compose dir
       mkdir -p "$COMPOSE_DIR"
       chown -R "$SEEDUSER:$SEEDUSER" "$COMPOSE_DIR"
 
@@ -117,7 +145,7 @@ maybe_clean_install() {
 detect_compose_cmd() {
   if docker compose version >/dev/null 2>&1; then
     DOCKER_COMPOSE="docker compose"
-  elif command -v docker-compose >/dev/null 2>&1; then
+  elif command -v docker-compose >/devnull 2>&1; then
     DOCKER_COMPOSE="docker-compose"
   else
     DOCKER_COMPOSE=""
@@ -200,6 +228,31 @@ $ports
 EOF
   }
 
+  # Sonarr
+  if [[ "${INSTALL[sonarr]:-n}" == "y" ]]; then
+    add_service \
+      "sonarr" \
+      "ghcr.io/linuxserver/sonarr:latest" \
+"      - $USER_HOME/media/tv:/tv
+      - $USER_HOME/media/downloads:/downloads
+      - $USER_HOME/sonarr:/config" \
+"      - 8989:8989" \
+""
+  fi
+
+  # Radarr
+  if [[ "${INSTALL[radarr]:-n}" == "y" ]]; then
+    add_service \
+      "radarr" \
+      "ghcr.io/linuxserver/radarr:latest" \
+"      - $USER_HOME/media/movies:/movies
+      - $USER_HOME/media/downloads:/downloads
+      - $USER_HOME/radarr:/config" \
+"      - 7878:7878" \
+""
+  fi
+
+  # qBittorrent
   if [[ "${INSTALL[qbittorrent]:-n}" == "y" ]]; then
     add_service \
       "qbittorrent" \
@@ -207,6 +260,55 @@ EOF
 "      - $USER_HOME/media/downloads:/downloads
       - $USER_HOME/qbittorrent:/config" \
 "      - 8080:8080" \
+""
+  fi
+
+  # Bazarr
+  if [[ "${INSTALL[bazarr]:-n}" == "y" ]]; then
+    add_service \
+      "bazarr" \
+      "ghcr.io/linuxserver/bazarr:latest" \
+"      - $USER_HOME/media:/media
+      - $USER_HOME/bazarr:/config" \
+"      - 6767:6767" \
+""
+  fi
+
+  # Prowlarr
+  if [[ "${INSTALL[prowlarr]:-n}" == "y" ]]; then
+    add_service \
+      "prowlarr" \
+      "ghcr.io/linuxserver/prowlarr:latest" \
+"      - $USER_HOME/prowlarr:/config" \
+"      - 9696:9696" \
+""
+  fi
+
+  # Listenarr
+  if [[ "${INSTALL[listenarr]:-n}" == "y" ]]; then
+    cat >> "$COMPOSE_FILE" <<EOF
+  listenarr:
+    image: ghcr.io/therobbiedavis/listenarr:canary
+    container_name: listenarr
+    user: "$PUID:$PGID"
+    volumes:
+      - $USER_HOME/listenarr:/app/config
+      - $USER_HOME/media:/media
+      - $USER_HOME/media/downloads:/downloads
+    ports:
+      - 4545:4545
+    restart: unless-stopped
+
+EOF
+  fi
+
+  # Jackett
+  if [[ "${INSTALL[jackett]:-n}" == "y" ]]; then
+    add_service \
+      "jackett" \
+      "ghcr.io/linuxserver/jackett:latest" \
+"      - $USER_HOME/jackett:/config" \
+"      - 9117:9117" \
 ""
   fi
 
@@ -221,44 +323,45 @@ start_containers() {
 }
 
 detect_ips() {
-  INTERNAL_IP=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "localhost")
+  INTERNAL_IP=$(ip -4 addr show eth0 2>/dev/null | awk '/inet /{print $2}' | cut -d/ -f1 || true)
+  if [[ -z "${INTERNAL_IP:-}" ]]; then
+    INTERNAL_IP=$(hostname -I 2>/dev/null | awk '{print $1}' || true)
+  fi
+  if [[ -z "${INTERNAL_IP:-}" ]]; then
+    INTERNAL_IP="localhost"
+  fi
+
   EXTERNAL_IP=$(curl -s --max-time 3 https://api.ipify.org || echo "UNKNOWN")
-}
-
-print_qbittorrent_credentials() {
-  if ! docker ps --format '{{.Names}}' | grep -qx "qbittorrent"; then
-    return
-  fi
-
-  local logs username password
-
-  logs=$(docker logs qbittorrent 2>/dev/null || true)
-
-  username=$(echo "$logs" | awk -F': ' '/administrator username is:/ {print $2}' | tail -n1)
-  password=$(echo "$logs" | awk -F': ' '/temporary password is provided/ {print $NF}' | tail -n1)
-
-  if [[ -n "${username:-}" && -n "${password:-}" ]]; then
-    echo
-    echo "🔐 qBittorrent WebUI credentials (temporary):"
-    echo "     Username: $username"
-    echo "     Password: $password"
-    echo "     ⚠️ Change this password immediately in qBittorrent settings"
-  fi
 }
 
 print_summary() {
   detect_ips
 
+  declare -A PORTS=(
+    [sonarr]=8989
+    [radarr]=7878
+    [qbittorrent]=8080
+    [bazarr]=6767
+    [prowlarr]=9696
+    [listenarr]=4545
+    [jackett]=9117
+  )
+
   echo
   echo "📊 Summary of running seedbox apps:"
 
-  if docker ps --format '{{.Names}}' | grep -qx "qbittorrent"; then
-    echo " - qbittorrent : UP"
-    echo "     Internal URL: http://$INTERNAL_IP:8080"
-    [[ "$EXTERNAL_IP" != "UNKNOWN" ]] && echo "     External URL: http://$EXTERNAL_IP:8080 ⚠️ Make sure port is open"
-  fi
-
+  for c in "${!PORTS[@]}"; do
+    if docker ps --format '{{.Names}}' | grep -qx "$c"; then
+      local port="${PORTS[$c]}"
+      echo " - $c : UP"
+      echo "     Internal URL: http://$INTERNAL_IP:$port"
+      if [[ "$EXTERNAL_IP" != "UNKNOWN" ]]; then
+        echo "     External URL: http://$EXTERNAL_IP:$port ⚠️ Make sure port is open"
+      fi
+    fi
+  done
   print_qbittorrent_credentials
+
 }
 
 main "$@"
