@@ -137,10 +137,10 @@ add_service "prowlarr" "ghcr.io/linuxserver/prowlarr" "    volumes:
       - 9696:9696"
 fi
 
-# Listenarr (updated port 4545)
+# Listenarr (using public canary image with port 4545)
 if [[ "$install_listenarr" == "y" ]]; then
-add_service "listenarr" "ghcr.io/linuxserver/listenarr" "    volumes:
-      - $USER_HOME/listenarr:/config
+add_service "listenarr" "ghcr.io/therobbiedavis/listenarr:canary" "    volumes:
+      - $USER_HOME/listenarr:/app/config
       - $USER_HOME/media/music:/music
       - $USER_HOME/media/downloads:/downloads
     ports:
