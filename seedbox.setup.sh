@@ -7,12 +7,21 @@ print_qbittorrent_credentials() {
     return
   fi
 
-  local logs username password
+  local logs username password i
 
-  logs=$(docker logs qbittorrent 2>/dev/null || true)
+  # Wait up to 60 seconds for qbittorrent to print the temp password
+  for i in {1..30}; do
+    logs=$(docker logs qbittorrent 2>/dev/null || true)
 
-  username=$(echo "$logs" | awk -F': ' '/administrator username is:/ {print $2}' | tail -n1)
-  password=$(echo "$logs" | awk -F': ' '/temporary password is provided/ {print $NF}' | tail -n1)
+    username=$(echo "$logs" | awk -F': ' '/administrator username is:/ {print $2}' | tail -n1)
+    password=$(echo "$logs" | awk -F': ' '/temporary password is provided/ {print $NF}' | tail -n1)
+
+    if [[ -n "${username:-}" && -n "${password:-}" ]]; then
+      break
+    fi
+
+    sleep 2
+  done
 
   if [[ -n "${username:-}" && -n "${password:-}" ]]; then
     echo
@@ -20,6 +29,10 @@ print_qbittorrent_credentials() {
     echo "     Username: $username"
     echo "     Password: $password"
     echo "     ⚠️ Change this password immediately in qBittorrent settings"
+  else
+    echo
+    echo "⚠️ qBittorrent credentials not found yet."
+    echo "   Check manually with: docker logs qbittorrent"
   fi
 }
 
