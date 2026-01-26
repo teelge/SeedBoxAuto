@@ -1,0 +1,2 @@
+# SeedBoxAuto
+automated seedbox deployment
