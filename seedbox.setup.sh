@@ -125,7 +125,7 @@ EOL
     echo "    restart: unless-stopped" >> "$COMPOSE_FILE"
 }
 
-# Sonarr
+# Add services
 [[ "$install_sonarr" == "y" ]] && add_service "sonarr" "ghcr.io/linuxserver/sonarr:latest" "volumes:
   - $USER_HOME/sonarr:/config
   - $USER_HOME/media/tv:/tv
@@ -133,7 +133,6 @@ EOL
 ports:
   - 8989:8989"
 
-# Radarr
 [[ "$install_radarr" == "y" ]] && add_service "radarr" "ghcr.io/linuxserver/radarr:latest" "volumes:
   - $USER_HOME/radarr:/config
   - $USER_HOME/media/movies:/movies
@@ -141,7 +140,6 @@ ports:
 ports:
   - 7878:7878"
 
-# qBittorrent
 [[ "$install_qbittorrent" == "y" ]] && add_service "qbittorrent" "ghcr.io/linuxserver/qbittorrent:latest" "environment:
   - WEBUI_PORT=8080
 volumes:
@@ -152,7 +150,6 @@ ports:
   - 6881:6881
   - 6881:6881/udp"
 
-# Bazarr
 [[ "$install_bazarr" == "y" ]] && add_service "bazarr" "ghcr.io/linuxserver/bazarr:latest" "volumes:
   - $USER_HOME/bazarr:/config
   - $USER_HOME/media/tv:/tv
@@ -160,13 +157,11 @@ ports:
 ports:
   - 6767:6767"
 
-# Prowlarr
 [[ "$install_prowlarr" == "y" ]] && add_service "prowlarr" "ghcr.io/linuxserver/prowlarr:latest" "volumes:
   - $USER_HOME/prowlarr:/config
 ports:
   - 9696:9696"
 
-# Listenarr
 [[ "$install_listenarr" == "y" ]] && add_service "listenarr" "ghcr.io/therobbiedavis/listenarr:canary" "volumes:
   - $USER_HOME/listenarr:/app/config
   - $USER_HOME/media/music:/music
@@ -174,7 +169,6 @@ ports:
 ports:
   - 4545:4545"
 
-# Jackett
 [[ "$install_jackett" == "y" ]] && add_service "jackett" "ghcr.io/linuxserver/jackett:latest" "volumes:
   - $USER_HOME/jackett:/config
   - $USER_HOME/media/downloads:/downloads
@@ -187,4 +181,16 @@ echo "✅ Docker Compose file created at $COMPOSE_FILE"
 cd "$USER_HOME/docker"
 docker-compose up -d
 
-echo "🚀 Selected apps are running via Docker"
+# ✅ Display summary of running containers
+echo
+echo "📊 Summary of running seedbox apps:"
+for c in sonarr radarr qbittorrent bazarr prowlarr listenarr jackett; do
+    if [[ "$(docker ps -q -f name=$c)" ]]; then
+        PORTS=$(docker ps -f name=$c --format '{{.Ports}}')
+        echo " - $c : UP (Ports: $PORTS)"
+    else
+        echo " - $c : NOT RUNNING"
+    fi
+done
+
+echo "🚀 All selected apps are running via Docker"
