@@ -2,6 +2,28 @@
 set -euo pipefail
 IFS=$'\n\t'
 
+print_qbittorrent_credentials() {
+  if ! docker ps --format '{{.Names}}' | grep -qx "qbittorrent"; then
+    return
+  fi
+
+  local logs username password
+
+  logs=$(docker logs qbittorrent 2>/dev/null || true)
+
+  username=$(echo "$logs" | awk -F': ' '/administrator username is:/ {print $2}' | tail -n1)
+  password=$(echo "$logs" | awk -F': ' '/temporary password is provided/ {print $NF}' | tail -n1)
+
+  if [[ -n "${username:-}" && -n "${password:-}" ]]; then
+    echo
+    echo "🔐 qBittorrent WebUI credentials (temporary):"
+    echo "     Username: $username"
+    echo "     Password: $password"
+    echo "     ⚠️ Change this password immediately in qBittorrent settings"
+  fi
+}
+
+ 
 main() {
   echo "🚀 Seedbox setup started"
 
@@ -338,6 +360,8 @@ print_summary() {
       fi
     fi
   done
+  print_qbittorrent_credentials
+
 }
 
 main "$@"
