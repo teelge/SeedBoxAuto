@@ -110,7 +110,6 @@ cat >> "$COMPOSE_FILE" <<EOF
       - PGID=$PGID
       - TZ=UTC
     volumes:
-      - $USER_HOME/$1:/config
 $3
     ports:
       - $4
@@ -119,21 +118,21 @@ $3
 EOF
 }
 
-# -------------------------
-# ADD SERVICES
-# -------------------------
 [ "${INSTALL[sonarr]}" = "y" ] && add_service sonarr ghcr.io/linuxserver/sonarr:latest "      - $USER_HOME/media/tv:/tv
-      - $USER_HOME/media/downloads:/downloads" "8989:8989"
+      - $USER_HOME/media/downloads:/downloads
+      - $USER_HOME/sonarr:/config" "8989:8989"
 
 [ "${INSTALL[radarr]}" = "y" ] && add_service radarr ghcr.io/linuxserver/radarr:latest "      - $USER_HOME/media/movies:/movies
-      - $USER_HOME/media/downloads:/downloads" "7878:7878"
+      - $USER_HOME/media/downloads:/downloads
+      - $USER_HOME/radarr:/config" "7878:7878"
 
-# FIXED: qbittorrent volumes unique
-[ "${INSTALL[qbittorrent]}" = "y" ] && add_service qbittorrent ghcr.io/linuxserver/qbittorrent:latest "      - $USER_HOME/media/downloads:/downloads" "8080:8080"
+[ "${INSTALL[qbittorrent]}" = "y" ] && add_service qbittorrent ghcr.io/linuxserver/qbittorrent:latest "      - $USER_HOME/media/downloads:/downloads
+      - $USER_HOME/qbittorrent:/config" "8080:8080"
 
-[ "${INSTALL[bazarr]}" = "y" ] && add_service bazarr ghcr.io/linuxserver/bazarr:latest "      - $USER_HOME/media:/media" "6767:6767"
+[ "${INSTALL[bazarr]}" = "y" ] && add_service bazarr ghcr.io/linuxserver/bazarr:latest "      - $USER_HOME/media:/media
+      - $USER_HOME/bazarr:/config" "6767:6767"
 
-[ "${INSTALL[prowlarr]}" = "y" ] && add_service prowlarr ghcr.io/linuxserver/prowlarr:latest "" "9696:9696"
+[ "${INSTALL[prowlarr]}" = "y" ] && add_service prowlarr ghcr.io/linuxserver/prowlarr:latest "      - $USER_HOME/prowlarr:/config" "9696:9696"
 
 if [ "${INSTALL[listenarr]}" = "y" ]; then
 cat >> "$COMPOSE_FILE" <<EOF
@@ -150,7 +149,7 @@ cat >> "$COMPOSE_FILE" <<EOF
 EOF
 fi
 
-[ "${INSTALL[jackett]}" = "y" ] && add_service jackett ghcr.io/linuxserver/jackett:latest "" "9117:9117"
+[ "${INSTALL[jackett]}" = "y" ] && add_service jackett ghcr.io/linuxserver/jackett:latest "      - $USER_HOME/jackett:/config" "9117:9117"
 
 chown "$SEEDUSER:$SEEDUSER" "$COMPOSE_FILE"
 echo "✅ Docker Compose file created at $COMPOSE_FILE"
@@ -160,7 +159,7 @@ echo "✅ Docker Compose file created at $COMPOSE_FILE"
 # -------------------------
 echo "🔹 Starting containers..."
 docker-compose -f "$COMPOSE_FILE" up -d
-sleep 10  # extra wait for slow machines
+sleep 5
 
 # -------------------------
 # IP DETECTION
@@ -180,7 +179,10 @@ for c in sonarr radarr qbittorrent bazarr prowlarr listenarr jackett; do
     echo " - $c : UP"
     echo "     Internal URL: http://$INTERNAL_IP:$PORT"
     if [ "$EXTERNAL_IP" != "UNKNOWN" ]; then
-      echo "     External URL: http://$EXTERNAL_IP:$PORT ⚠️ Make sure port is open"
+        echo "     External URL: http://$EXTERNAL_IP:$PORT ⚠️ Make sure port is open"
     fi
   fi
 done
+
+echo
+echo "✅ All selected seedbox apps deployed successfully!"
