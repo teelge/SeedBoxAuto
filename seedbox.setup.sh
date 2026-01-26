@@ -128,7 +128,7 @@ EOF
 [ "${INSTALL[radarr]}" = "y" ] && add_service radarr ghcr.io/linuxserver/radarr:latest "      - $USER_HOME/media/movies:/movies
       - $USER_HOME/media/downloads:/downloads" "7878:7878"
 
-# Fix: remove duplicate /config mount
+# FIXED: qbittorrent volumes unique
 [ "${INSTALL[qbittorrent]}" = "y" ] && add_service qbittorrent ghcr.io/linuxserver/qbittorrent:latest "      - $USER_HOME/media/downloads:/downloads" "8080:8080"
 
 [ "${INSTALL[bazarr]}" = "y" ] && add_service bazarr ghcr.io/linuxserver/bazarr:latest "      - $USER_HOME/media:/media" "6767:6767"
@@ -160,20 +160,13 @@ echo "✅ Docker Compose file created at $COMPOSE_FILE"
 # -------------------------
 echo "🔹 Starting containers..."
 docker-compose -f "$COMPOSE_FILE" up -d
-sleep 10  # Give extra time for slower machines
+sleep 10  # extra wait for slow machines
 
 # -------------------------
 # IP DETECTION
 # -------------------------
 INTERNAL_IP=$(hostname -I | awk '{print $1}')
 EXTERNAL_IP=$(curl -s https://api.ipify.org || echo "UNKNOWN")
-
-# -------------------------
-# QBITTORRENT TEMP PASSWORD
-# -------------------------
-if [ "${INSTALL[qbittorrent]}" = "y" ]; then
-  TEMP_PASS=$(docker logs qbittorrent 2>/dev/null | grep "temporary password" | awk -F': ' '{print $2}' | tail -n1)
-fi
 
 # -------------------------
 # STATUS + URL OUTPUT
@@ -191,9 +184,3 @@ for c in sonarr radarr qbittorrent bazarr prowlarr listenarr jackett; do
     fi
   fi
 done
-
-if [ -n "$TEMP_PASS" ]; then
-  echo
-  echo "⚠️ qbittorrent WebUI temporary password: $TEMP_PASS (username: admin)"
-  echo "   You should set a new password in WebUI preferences."
-fi
