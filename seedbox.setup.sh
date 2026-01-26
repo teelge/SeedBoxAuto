@@ -99,6 +99,13 @@ chown -R "$SEEDUSER:$SEEDUSER" "$USER_HOME/media" "$USER_HOME/sonarr" "$USER_HOM
 chmod -R 775 "$USER_HOME/media"
 
 # -------------------------
+# DEFAULT QBITORRENT CREDENTIALS
+# -------------------------
+QB_USER="admin"
+QB_PASS="adminadmin"
+echo "🔐 qbittorrent credentials: $QB_USER / $QB_PASS"
+
+# -------------------------
 # DETECT TIMEZONE
 # -------------------------
 TZ=$(cat /etc/timezone 2>/dev/null || echo "UTC")
@@ -123,6 +130,7 @@ cat >> "$COMPOSE_FILE" <<EOF
       - PUID=$PUID
       - PGID=$PGID
       - TZ=$TZ
+$5
     volumes:
 $3
     ports:
@@ -134,19 +142,21 @@ EOF
 
 [ "${INSTALL[sonarr]}" = "y" ] && add_service sonarr ghcr.io/linuxserver/sonarr:latest "      - $USER_HOME/sonarr:/config
       - $USER_HOME/media/tv:/tv
-      - $USER_HOME/media/downloads:/downloads" "8989:8989"
+      - $USER_HOME/media/downloads:/downloads" "8989:8989" ""
 
 [ "${INSTALL[radarr]}" = "y" ] && add_service radarr ghcr.io/linuxserver/radarr:latest "      - $USER_HOME/radarr:/config
       - $USER_HOME/media/movies:/movies
-      - $USER_HOME/media/downloads:/downloads" "7878:7878"
+      - $USER_HOME/media/downloads:/downloads" "7878:7878" ""
 
 [ "${INSTALL[qbittorrent]}" = "y" ] && add_service qbittorrent ghcr.io/linuxserver/qbittorrent:latest "      - $USER_HOME/qbittorrent:/config
-      - $USER_HOME/media/downloads:/downloads" "8080:8080"
+      - $USER_HOME/media/downloads:/downloads" "8080:8080" "      - WEBUI_PORT=8080
+      - QBT_USERNAME=$QB_USER
+      - QBT_PASSWORD=$QB_PASS"
 
 [ "${INSTALL[bazarr]}" = "y" ] && add_service bazarr ghcr.io/linuxserver/bazarr:latest "      - $USER_HOME/bazarr:/config
-      - $USER_HOME/media:/media" "6767:6767"
+      - $USER_HOME/media:/media" "6767:6767" ""
 
-[ "${INSTALL[prowlarr]}" = "y" ] && add_service prowlarr ghcr.io/linuxserver/prowlarr:latest "      - $USER_HOME/prowlarr:/config" "9696:9696"
+[ "${INSTALL[prowlarr]}" = "y" ] && add_service prowlarr ghcr.io/linuxserver/prowlarr:latest "      - $USER_HOME/prowlarr:/config" "9696:9696" ""
 
 if [ "${INSTALL[listenarr]}" = "y" ]; then
 cat >> "$COMPOSE_FILE" <<EOF
@@ -163,7 +173,7 @@ cat >> "$COMPOSE_FILE" <<EOF
 EOF
 fi
 
-[ "${INSTALL[jackett]}" = "y" ] && add_service jackett ghcr.io/linuxserver/jackett:latest "      - $USER_HOME/jackett:/config" "9117:9117"
+[ "${INSTALL[jackett]}" = "y" ] && add_service jackett ghcr.io/linuxserver/jackett:latest "      - $USER_HOME/jackett:/config" "9117:9117" ""
 
 chown "$SEEDUSER:$SEEDUSER" "$COMPOSE_FILE"
 echo "✅ Docker Compose file created at $COMPOSE_FILE"
@@ -173,7 +183,12 @@ echo "✅ Docker Compose file created at $COMPOSE_FILE"
 # -------------------------
 echo "🔹 Starting containers..."
 docker-compose -f "$COMPOSE_FILE" up -d
-sleep 5
+
+# -------------------------
+# WAIT FOR CONTAINERS
+# -------------------------
+echo "🔹 Waiting 15 seconds for containers to initialize..."
+sleep 15
 
 # -------------------------
 # IP DETECTION
