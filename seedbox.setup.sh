@@ -48,7 +48,7 @@ select_user() {
     echo "Existing non-root users detected:"
     echo "$users"
     if ask_yn "Do you want to use an existing user?"; then
-      read -r -p "Enter username: " SEEDUSER
+      read -r -p "Enter the username to use: " SEEDUSER
       if ! id "$SEEDUSER" >/dev/null 2>&1; then
         echo "❌ User not found"
         exit 1
@@ -76,36 +76,32 @@ prepare_paths() {
 
   COMPOSE_DIR="$USER_HOME/docker"
   COMPOSE_FILE="$COMPOSE_DIR/docker-compose.yml"
-  ENV_FILE="$COMPOSE_DIR/.env"
 
   mkdir -p "$COMPOSE_DIR"
   chown -R "$SEEDUSER:$SEEDUSER" "$COMPOSE_DIR"
 
+  # Make sure media exists and is owned correctly
   mkdir -p "$USER_HOME/media" "$USER_HOME/media/downloads"
   chown -R "$SEEDUSER:$SEEDUSER" "$USER_HOME/media"
-
-  # Always (re)create a sane .env for this stack
-  cat > "$ENV_FILE" <<EOF
-PUID=$PUID
-PGID=$PGID
-TZ=UTC
-USER_HOME=$USER_HOME
-EOF
-  chown "$SEEDUSER:$SEEDUSER" "$ENV_FILE"
 }
 
 maybe_clean_install() {
+  # Full reset: docker stack + all app configs for this user
   if [[ -f "$COMPOSE_FILE" ]]; then
     if ask_yn "Existing Docker setup found. Do CLEAN install (this will DELETE all app settings and configs)?"; then
       echo "🔹 Removing old Docker setup and configs..."
 
-      detect_compose_cmd
-      if [[ -n "$DOCKER_COMPOSE" ]]; then
-        $DOCKER_COMPOSE -f "$COMPOSE_FILE" down || true
+      # Stop and remove containers from this compose file
+      if command -v docker-compose >/dev/null 2>&1; then
+        docker-compose -f "$COMPOSE_FILE" down || true
+      elif docker compose version >/dev/null 2>&1; then
+        docker compose -f "$COMPOSE_FILE" down || true
       fi
 
+      # Remove compose directory
       rm -rf "$COMPOSE_DIR"
 
+      # Remove individual app config directories to force true first-run
       rm -rf \
         "$USER_HOME/sonarr" \
         "$USER_HOME/radarr" \
@@ -113,9 +109,9 @@ maybe_clean_install() {
         "$USER_HOME/bazarr" \
         "$USER_HOME/prowlarr" \
         "$USER_HOME/listenarr" \
-        "$USER_HOME/jackett" \
-        "$USER_HOME/traefik"
+        "$USER_HOME/jackett"
 
+      # Recreate compose dir
       mkdir -p "$COMPOSE_DIR"
       chown -R "$SEEDUSER:$SEEDUSER" "$COMPOSE_DIR"
 
@@ -127,7 +123,7 @@ maybe_clean_install() {
 detect_compose_cmd() {
   if docker compose version >/dev/null 2>&1; then
     DOCKER_COMPOSE="docker compose"
-  elif command -v docker-compose >/dev/null 2>&1; then
+  elif command -v docker-compose >/devnull 2>&1; then
     DOCKER_COMPOSE="docker-compose"
   else
     DOCKER_COMPOSE=""
@@ -145,12 +141,8 @@ install_docker_stack() {
   echo "🔹 Checking docker compose..."
   detect_compose_cmd
   if [[ -z "$DOCKER_COMPOSE" ]]; then
-    if command -v apt >/dev/null 2>&1; then
-      apt update -y
-      apt install -y docker-compose || true
-    elif command -v dnf >/dev/null 2>&1; then
-      dnf install -y docker-compose || true
-    fi
+    apt update -y
+    apt install -y docker-compose || true
     detect_compose_cmd
     if [[ -z "$DOCKER_COMPOSE" ]]; then
       echo "❌ Could not install docker-compose or docker compose"
@@ -180,12 +172,6 @@ select_apps() {
       INSTALL["$app"]="n"
     fi
   done
-
-  if ask_yn "Install Traefik reverse proxy (HTTPS/web dashboard)?"; then
-    INSTALL["traefik"]="y"
-  else
-    INSTALL["traefik"]="n"
-  fi
 }
 
 generate_compose() {
@@ -193,7 +179,6 @@ generate_compose() {
 
   cat > "$COMPOSE_FILE" <<EOF
 version: "3.8"
-
 services:
 EOF
 
@@ -208,19 +193,15 @@ EOF
   $name:
     image: $image
     container_name: $name
-    env_file:
-      - .env
     environment:
-      - PUID=\${PUID}
-      - PGID=\${PGID}
-      - TZ=\${TZ}
+      - PUID=$PUID
+      - PGID=$PGID
+      - TZ=UTC
     volumes:
 $volumes
     ports:
 $ports
     restart: unless-stopped$extra
-    networks:
-      - seedbox
 
 EOF
   }
@@ -230,9 +211,9 @@ EOF
     add_service \
       "sonarr" \
       "ghcr.io/linuxserver/sonarr:latest" \
-"      - \${USER_HOME}/media/tv:/tv
-      - \${USER_HOME}/media/downloads:/downloads
-      - \${USER_HOME}/sonarr:/config" \
+"      - $USER_HOME/media/tv:/tv
+      - $USER_HOME/media/downloads:/downloads
+      - $USER_HOME/sonarr:/config" \
 "      - 8989:8989" \
 ""
   fi
@@ -242,9 +223,9 @@ EOF
     add_service \
       "radarr" \
       "ghcr.io/linuxserver/radarr:latest" \
-"      - \${USER_HOME}/media/movies:/movies
-      - \${USER_HOME}/media/downloads:/downloads
-      - \${USER_HOME}/radarr:/config" \
+"      - $USER_HOME/media/movies:/movies
+      - $USER_HOME/media/downloads:/downloads
+      - $USER_HOME/radarr:/config" \
 "      - 7878:7878" \
 ""
   fi
@@ -254,8 +235,8 @@ EOF
     add_service \
       "qbittorrent" \
       "ghcr.io/linuxserver/qbittorrent:latest" \
-"      - \${USER_HOME}/media/downloads:/downloads
-      - \${USER_HOME}/qbittorrent:/config" \
+"      - $USER_HOME/media/downloads:/downloads
+      - $USER_HOME/qbittorrent:/config" \
 "      - 8080:8080" \
 ""
   fi
@@ -265,8 +246,8 @@ EOF
     add_service \
       "bazarr" \
       "ghcr.io/linuxserver/bazarr:latest" \
-"      - \${USER_HOME}/media:/media
-      - \${USER_HOME}/bazarr:/config" \
+"      - $USER_HOME/media:/media
+      - $USER_HOME/bazarr:/config" \
 "      - 6767:6767" \
 ""
   fi
@@ -276,21 +257,27 @@ EOF
     add_service \
       "prowlarr" \
       "ghcr.io/linuxserver/prowlarr:latest" \
-"      - \${USER_HOME}/prowlarr:/config" \
+"      - $USER_HOME/prowlarr:/config" \
 "      - 9696:9696" \
 ""
   fi
 
   # Listenarr
   if [[ "${INSTALL[listenarr]:-n}" == "y" ]]; then
-    add_service \
-      "listenarr" \
-      "ghcr.io/therobbiedavis/listenarr:canary" \
-"      - \${USER_HOME}/listenarr:/app/config
-      - \${USER_HOME}/media:/media
-      - \${USER_HOME}/media/downloads:/downloads" \
-"      - 4545:4545" \
-""
+    cat >> "$COMPOSE_FILE" <<EOF
+  listenarr:
+    image: ghcr.io/therobbiedavis/listenarr:canary
+    container_name: listenarr
+    user: "$PUID:$PGID"
+    volumes:
+      - $USER_HOME/listenarr:/app/config
+      - $USER_HOME/media:/media
+      - $USER_HOME/media/downloads:/downloads
+    ports:
+      - 4545:4545
+    restart: unless-stopped
+
+EOF
   fi
 
   # Jackett
@@ -298,40 +285,10 @@ EOF
     add_service \
       "jackett" \
       "ghcr.io/linuxserver/jackett:latest" \
-"      - \${USER_HOME}/jackett:/config" \
+"      - $USER_HOME/jackett:/config" \
 "      - 9117:9117" \
 ""
   fi
-
-  # Optional Traefik
-  if [[ "${INSTALL[traefik]:-n}" == "y" ]]; then
-    mkdir -p "$USER_HOME/traefik"
-    chown -R "$SEEDUSER:$SEEDUSER" "$USER_HOME/traefik"
-    cat >> "$COMPOSE_FILE" <<EOF
-  traefik:
-    image: traefik:v3.1
-    container_name: traefik
-    command:
-      - "--api.insecure=true"
-      - "--providers.docker=true"
-    ports:
-      - "80:80"
-      - "8081:8080"
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-      - \${USER_HOME}/traefik:/etc/traefik
-    restart: unless-stopped
-    networks:
-      - seedbox
-
-EOF
-  fi
-
-  cat >> "$COMPOSE_FILE" <<EOF
-networks:
-  seedbox:
-    driver: bridge
-EOF
 
   chown "$SEEDUSER:$SEEDUSER" "$COMPOSE_FILE"
   echo "✅ Docker Compose file created at $COMPOSE_FILE"
@@ -339,7 +296,6 @@ EOF
 
 start_containers() {
   echo "🔹 Starting containers..."
-  detect_compose_cmd
   $DOCKER_COMPOSE -f "$COMPOSE_FILE" up -d
   sleep 5
 }
@@ -367,7 +323,6 @@ print_summary() {
     [prowlarr]=9696
     [listenarr]=4545
     [jackett]=9117
-    [traefik]=8081
   )
 
   echo
