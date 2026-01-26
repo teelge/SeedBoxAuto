@@ -106,13 +106,6 @@ read -p "Prowlarr: " install_prowlarr
 read -p "Listenarr: " install_listenarr
 read -p "Jackett: " install_jackett
 
-# Ask qBittorrent Web UI credentials if installing it
-if [[ "$install_qbittorrent" == "y" ]]; then
-    read -p "Enter qBittorrent Web UI username: " QBT_USER
-    read -s -p "Enter qBittorrent Web UI password: " QBT_PASS
-    echo
-fi
-
 # Install Docker if not present
 if ! command -v docker &>/dev/null; then
     echo "⚙️ Installing Docker..."
@@ -166,8 +159,6 @@ ports:
 
 [[ "$install_qbittorrent" == "y" ]] && add_service "qbittorrent" "ghcr.io/linuxserver/qbittorrent:latest" "environment:
   - WEBUI_PORT=8080
-  - QBITTORRENT_WEBUI_USERNAME=$QBT_USER
-  - QBITTORRENT_WEBUI_PASSWORD=$QBT_PASS
 volumes:
   - $USER_HOME/qbittorrent:/config
   - $USER_HOME/media/downloads:/downloads
@@ -227,5 +218,13 @@ for app in sonarr radarr qbittorrent bazarr prowlarr listenarr jackett; do
         echo " - $app : NOT RUNNING"
     fi
 done
+
+# Display temporary qBittorrent Web UI password
+if [[ "$install_qbittorrent" == "y" ]]; then
+    echo
+    TEMP_PASS=$(docker logs qbittorrent 2>&1 | grep -oP 'temporary password is provided for this session: \K\w+')
+    echo "🔑 qBittorrent temporary WebUI password: $TEMP_PASS"
+    echo "ℹ️ Default username is: admin"
+fi
 
 echo "🚀 All selected apps are running via Docker"
