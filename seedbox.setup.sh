@@ -137,14 +137,14 @@ add_service "prowlarr" "ghcr.io/linuxserver/prowlarr" "    volumes:
       - 9696:9696"
 fi
 
-# Listenarr
+# Listenarr (updated port 4545)
 if [[ "$install_listenarr" == "y" ]]; then
 add_service "listenarr" "ghcr.io/linuxserver/listenarr" "    volumes:
       - $USER_HOME/listenarr:/config
       - $USER_HOME/media/music:/music
       - $USER_HOME/media/downloads:/downloads
     ports:
-      - 8686:8686"
+      - 4545:4545"
 fi
 
 # Jackett
