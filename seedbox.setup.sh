@@ -82,6 +82,7 @@ echo "✅ Docker daemon running"
 # APP SELECTION
 # -------------------------
 declare -A INSTALL
+
 for app in sonarr radarr qbittorrent bazarr prowlarr listenarr jackett; do
   read -p "Install $app? (y/n): " INSTALL[$app]
 done
@@ -90,17 +91,15 @@ mkdir -p "$COMPOSE_DIR"
 chown -R "$SEEDUSER:$SEEDUSER" "$COMPOSE_DIR"
 
 # -------------------------
-# COMPOSE HEADER
+# GENERATE COMPOSE FILE
 # -------------------------
 echo "🔹 Generating Docker Compose file..."
+
 cat > "$COMPOSE_FILE" <<EOF
 version: "3.8"
 services:
 EOF
 
-# -------------------------
-# SERVICE TEMPLATE
-# -------------------------
 add_service () {
 cat >> "$COMPOSE_FILE" <<EOF
   $1:
@@ -120,26 +119,15 @@ $3
 EOF
 }
 
-# -------------------------
-# SERVICES
-# -------------------------
-[ "${INSTALL[sonarr]}" = "y" ] && add_service sonarr ghcr.io/linuxserver/sonarr:latest \
-"      - $USER_HOME/media/tv:/tv
-      - $USER_HOME/media/downloads:/downloads" \
-"8989:8989"
+[ "${INSTALL[sonarr]}" = "y" ] && add_service sonarr ghcr.io/linuxserver/sonarr:latest "      - $USER_HOME/media/tv:/tv
+      - $USER_HOME/media/downloads:/downloads" "8989:8989"
 
-[ "${INSTALL[radarr]}" = "y" ] && add_service radarr ghcr.io/linuxserver/radarr:latest \
-"      - $USER_HOME/media/movies:/movies
-      - $USER_HOME/media/downloads:/downloads" \
-"7878:7878"
+[ "${INSTALL[radarr]}" = "y" ] && add_service radarr ghcr.io/linuxserver/radarr:latest "      - $USER_HOME/media/movies:/movies
+      - $USER_HOME/media/downloads:/downloads" "7878:7878"
 
-[ "${INSTALL[qbittorrent]}" = "y" ] && add_service qbittorrent ghcr.io/linuxserver/qbittorrent:latest \
-"      - $USER_HOME/media/downloads:/downloads" \
-"8080:8080"
+[ "${INSTALL[qbittorrent]}" = "y" ] && add_service qbittorrent ghcr.io/linuxserver/qbittorrent:latest "      - $USER_HOME/media/downloads:/downloads" "8080:8080"
 
-[ "${INSTALL[bazarr]}" = "y" ] && add_service bazarr ghcr.io/linuxserver/bazarr:latest \
-"      - $USER_HOME/media:/media" \
-"6767:6767"
+[ "${INSTALL[bazarr]}" = "y" ] && add_service bazarr ghcr.io/linuxserver/bazarr:latest "      - $USER_HOME/media:/media" "6767:6767"
 
 [ "${INSTALL[prowlarr]}" = "y" ] && add_service prowlarr ghcr.io/linuxserver/prowlarr:latest "" "9696:9696"
 
@@ -168,7 +156,16 @@ echo "✅ Docker Compose file created at $COMPOSE_FILE"
 # -------------------------
 echo "🔹 Starting containers..."
 docker-compose -f "$COMPOSE_FILE" up -d
-sleep 6
+sleep 10  # wait for slow machines
+
+# -------------------------
+# GET QBittorrent TEMP PASSWORD
+# -------------------------
+if [ "${INSTALL[qbittorrent]}" = "y" ]; then
+  QBT_LOG=$(docker logs qbittorrent 2>&1 | grep -m1 "temporary password")
+  QBT_USER=$(echo "$QBT_LOG" | awk '{print $7}')
+  QBT_PASS=$(echo "$QBT_LOG" | awk '{print $NF}')
+fi
 
 # -------------------------
 # IP DETECTION
@@ -184,21 +181,18 @@ echo "📊 Summary of running seedbox apps:"
 
 for c in sonarr radarr qbittorrent bazarr prowlarr listenarr jackett; do
   if docker ps --format '{{.Names}}' | grep -q "^$c$"; then
-    PORT=$(docker port "$c" | head -n1 | awk -F: '{print $2}')
+    PORT=$(docker port $c | head -n1 | awk -F: '{print $2}')
     echo " - $c : UP"
     echo "     Internal URL: http://$INTERNAL_IP:$PORT"
-    [ "$EXTERNAL_IP" != "UNKNOWN" ] && echo "     External URL: http://$EXTERNAL_IP:$PORT ⚠️ Open firewall"
+    if [ "$EXTERNAL_IP" != "UNKNOWN" ]; then
+      echo "     External URL: http://$EXTERNAL_IP:$PORT ⚠️ Make sure port is open"
+    fi
+    if [ "$c" = "qbittorrent" ]; then
+      echo "     WebUI username: $QBT_USER"
+      echo "     WebUI temporary password: $QBT_PASS"
+    fi
   fi
 done
 
-# -------------------------
-# QBITTORRENT PASSWORD
-# -------------------------
-if docker ps --format '{{.Names}}' | grep -q "^qbittorrent$"; then
-  echo
-  echo "🔐 qBittorrent credentials:"
-  docker logs qbittorrent 2>/dev/null | grep "temporary password" | tail -n1
-fi
-
 echo
-echo "✅ Seedbox setup complete"
+echo "🚀 Seedbox setup completed!"
