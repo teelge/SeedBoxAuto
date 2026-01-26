@@ -196,6 +196,7 @@ echo "✅ Docker Compose file created at $COMPOSE_FILE"
 
 # Start Docker containers
 cd "$USER_HOME/docker"
+sudo apt install docker-compose
 docker-compose up -d
 
 # ✅ Display summary of running containers with URLs
@@ -228,3 +229,4 @@ if [[ "$install_qbittorrent" == "y" ]]; then
 fi
 
 echo "🚀 All selected apps are running via Docker"
+
