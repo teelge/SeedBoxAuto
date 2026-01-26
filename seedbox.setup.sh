@@ -79,13 +79,16 @@ prepare_paths() {
 
   mkdir -p "$COMPOSE_DIR"
   chown -R "$SEEDUSER:$SEEDUSER" "$COMPOSE_DIR"
+
+  # Make sure media exists and is owned correctly
+  mkdir -p "$USER_HOME/media" "$USER_HOME/media/downloads"
+  chown -R "$SEEDUSER:$SEEDUSER" "$USER_HOME/media"
 }
 
 maybe_clean_install() {
   if [[ -f "$COMPOSE_FILE" ]]; then
     if ask_yn "Existing Docker setup found. Do CLEAN install?"; then
       echo "🔹 Removing old Docker setup..."
-      # Use whichever compose command is available (we detect it later)
       if command -v docker-compose >/dev/null 2>&1; then
         docker-compose -f "$COMPOSE_FILE" down || true
       elif docker compose version >/dev/null 2>&1; then
@@ -241,7 +244,7 @@ EOF
 ""
   fi
 
-  # Listenarr (special user syntax)
+  # Listenarr – uses media + downloads, no audiobooks folder
   if [[ "${INSTALL[listenarr]:-n}" == "y" ]]; then
     cat >> "$COMPOSE_FILE" <<EOF
   listenarr:
@@ -250,6 +253,8 @@ EOF
     user: "$PUID:$PGID"
     volumes:
       - $USER_HOME/listenarr:/app/config
+      - $USER_HOME/media:/media
+      - $USER_HOME/media/downloads:/downloads
     ports:
       - 4545:4545
     restart: unless-stopped
@@ -278,7 +283,6 @@ start_containers() {
 }
 
 detect_ips() {
-  # Try to get an IPv4 address for a common interface, fallback to hostname -I, then localhost
   INTERNAL_IP=$(ip -4 addr show eth0 2>/dev/null | awk '/inet /{print $2}' | cut -d/ -f1 || true)
   if [[ -z "${INTERNAL_IP:-}" ]]; then
     INTERNAL_IP=$(hostname -I 2>/dev/null | awk '{print $1}' || true)
