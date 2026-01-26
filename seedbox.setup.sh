@@ -7,7 +7,7 @@ echo "🚀 Seedbox setup started"
 if [[ "$(id -u)" -ne 0 ]]; then
     echo "❌ Please run as root."
     echo "Use:"
-    echo "curl -fsSL https://raw.githubusercontent.com/teelge/SeedBoxAuto/main/seedbox.setup.sh | sudo bash"
+    echo "sudo bash -c \"\$(wget -qO- URL)\""
     exit 1
 fi
 
