@@ -9,34 +9,25 @@ print_qbittorrent_credentials() {
 
   local logs username password i
 
-  # Wait up to 60 seconds for qbittorrent to print the temp password
   for i in {1..30}; do
     logs=$(docker logs qbittorrent 2>/dev/null || true)
 
     username=$(echo "$logs" | awk -F': ' '/administrator username is:/ {print $2}' | tail -n1)
     password=$(echo "$logs" | awk -F': ' '/temporary password is provided/ {print $NF}' | tail -n1)
 
-    if [[ -n "${username:-}" && -n "${password:-}" ]]; then
-      break
-    fi
-
+    [[ -n "$username" && -n "$password" ]] && break
     sleep 2
   done
 
-  if [[ -n "${username:-}" && -n "${password:-}" ]]; then
+  if [[ -n "$username" && -n "$password" ]]; then
     echo
     echo "🔐 qBittorrent WebUI credentials (temporary):"
     echo "     Username: $username"
     echo "     Password: $password"
     echo "     ⚠️ Change this password immediately in qBittorrent settings"
-  else
-    echo
-    echo "⚠️ qBittorrent credentials not found yet."
-    echo "   Check manually with: docker logs qbittorrent"
   fi
 }
 
- 
 main() {
   echo "🚀 Seedbox setup started"
 
@@ -56,10 +47,7 @@ main() {
 }
 
 check_root() {
-  if [[ "$EUID" -ne 0 ]]; then
-    echo "❌ Please run via: sudo $0"
-    exit 1
-  fi
+  [[ "$EUID" -eq 0 ]] || { echo "❌ Please run via: sudo $0"; exit 1; }
   echo "✅ Running as root"
 }
 
@@ -80,301 +68,155 @@ select_user() {
   users=$(awk -F: '$3>=1000 && $1!="nobody"{print $1}' /etc/passwd || true)
 
   if [[ -n "$users" ]]; then
-    echo "Existing non-root users detected:"
     echo "$users"
-    if ask_yn "Do you want to use an existing user?"; then
-      read -r -p "Enter the username to use: " SEEDUSER
-      if ! id "$SEEDUSER" >/dev/null 2>&1; then
-        echo "❌ User not found"
-        exit 1
-      fi
-    else
-      read -r -p "Enter new username: " SEEDUSER
-      adduser "$SEEDUSER"
-    fi
+    ask_yn "Use existing user?" && read -r -p "Username: " SEEDUSER || { read -r -p "New username: " SEEDUSER; adduser "$SEEDUSER"; }
   else
-    echo "No existing non-root users found."
-    read -r -p "Enter new username: " SEEDUSER
+    read -r -p "New username: " SEEDUSER
     adduser "$SEEDUSER"
   fi
+
+  id "$SEEDUSER" >/dev/null 2>&1 || { echo "❌ User not found"; exit 1; }
 }
 
 prepare_paths() {
   USER_HOME=$(getent passwd "$SEEDUSER" | cut -d: -f6)
-  if [[ -z "${USER_HOME:-}" ]]; then
-    echo "❌ Could not determine home directory for $SEEDUSER"
-    exit 1
-  fi
-
   PUID=$(id -u "$SEEDUSER")
   PGID=$(id -g "$SEEDUSER")
 
   COMPOSE_DIR="$USER_HOME/docker"
   COMPOSE_FILE="$COMPOSE_DIR/docker-compose.yml"
 
-  mkdir -p "$COMPOSE_DIR"
-  chown -R "$SEEDUSER:$SEEDUSER" "$COMPOSE_DIR"
-
-  # Make sure media exists and is owned correctly
-  mkdir -p "$USER_HOME/media" "$USER_HOME/media/downloads"
-  chown -R "$SEEDUSER:$SEEDUSER" "$USER_HOME/media"
+  mkdir -p "$COMPOSE_DIR" "$USER_HOME/media/downloads"
+  chown -R "$SEEDUSER:$SEEDUSER" "$USER_HOME"
 }
 
 maybe_clean_install() {
-  # Full reset: docker stack + all app configs for this user
-  if [[ -f "$COMPOSE_FILE" ]]; then
-    if ask_yn "Existing Docker setup found. Do CLEAN install (this will DELETE all app settings and configs)?"; then
-      echo "🔹 Removing old Docker setup and configs..."
+  [[ -f "$COMPOSE_FILE" ]] || return
+  ask_yn "CLEAN install (deletes all configs)?" || return
 
-      # Stop and remove containers from this compose file
-      if command -v docker-compose >/dev/null 2>&1; then
-        docker-compose -f "$COMPOSE_FILE" down || true
-      elif docker compose version >/dev/null 2>&1; then
-        docker compose -f "$COMPOSE_FILE" down || true
-      fi
-
-      # Remove compose directory
-      rm -rf "$COMPOSE_DIR"
-
-      # Remove individual app config directories to force true first-run
-      rm -rf \
-        "$USER_HOME/sonarr" \
-        "$USER_HOME/radarr" \
-        "$USER_HOME/qbittorrent" \
-        "$USER_HOME/bazarr" \
-        "$USER_HOME/prowlarr" \
-        "$USER_HOME/listenarr" \
-        "$USER_HOME/jackett"
-
-      # Recreate compose dir
-      mkdir -p "$COMPOSE_DIR"
-      chown -R "$SEEDUSER:$SEEDUSER" "$COMPOSE_DIR"
-
-      echo "✅ Clean install prepared (all previous app settings removed)"
-    fi
-  fi
+  docker compose -f "$COMPOSE_FILE" down 2>/dev/null || true
+  rm -rf "$COMPOSE_DIR" "$USER_HOME"/{sonarr,radarr,qbittorrent,bazarr,prowlarr,listenarr,jackett}
+  mkdir -p "$COMPOSE_DIR"
 }
 
 detect_compose_cmd() {
-  if docker compose version >/dev/null 2>&1; then
-    DOCKER_COMPOSE="docker compose"
-  elif command -v docker-compose >/devnull 2>&1; then
-    DOCKER_COMPOSE="docker-compose"
-  else
-    DOCKER_COMPOSE=""
-  fi
+  docker compose version >/dev/null 2>&1 && DOCKER_COMPOSE="docker compose" ||
+  command -v docker-compose >/dev/null 2>&1 && DOCKER_COMPOSE="docker-compose" || DOCKER_COMPOSE=""
 }
 
 install_docker_stack() {
-  echo "🔹 Checking Docker..."
-  if ! command -v docker >/dev/null 2>&1; then
-    curl -fsSL https://get.docker.com | sh
-    systemctl enable --now docker 2>/dev/null || true
-  fi
-  echo "✅ Docker installed"
-
-  echo "🔹 Checking docker compose..."
-  detect_compose_cmd
-  if [[ -z "$DOCKER_COMPOSE" ]]; then
-    apt update -y
-    apt install -y docker-compose || true
-    detect_compose_cmd
-    if [[ -z "$DOCKER_COMPOSE" ]]; then
-      echo "❌ Could not install docker-compose or docker compose"
-      exit 1
-    fi
-  fi
-  echo "✅ docker compose ready: $DOCKER_COMPOSE"
-
+  command -v docker >/dev/null 2>&1 || curl -fsSL https://get.docker.com | sh
+  detect_compose_cmd || apt install -y docker-compose
   usermod -aG docker "$SEEDUSER"
 
-  echo "🔹 Waiting for Docker daemon..."
-  until docker info >/dev/null 2>&1; do
-    sleep 2
-  done
-  echo "✅ Docker daemon running"
+  until docker info >/dev/null 2>&1; do sleep 2; done
 }
 
 select_apps() {
   declare -gA INSTALL=()
-  APPS=(sonarr radarr qbittorrent bazarr prowlarr listenarr jackett)
-
-  echo "🔹 Select apps to install:"
-  for app in "${APPS[@]}"; do
-    if ask_yn "Install $app?"; then
-      INSTALL["$app"]="y"
-    else
-      INSTALL["$app"]="n"
-    fi
+  for app in sonarr radarr qbittorrent bazarr prowlarr listenarr jackett; do
+    ask_yn "Install $app?" && INSTALL[$app]=y || INSTALL[$app]=n
   done
 }
 
 generate_compose() {
-  echo "🔹 Generating Docker Compose file..."
-
   cat > "$COMPOSE_FILE" <<EOF
 version: "3.8"
 services:
 EOF
 
-  add_service() {
-    local name="$1"
-    local image="$2"
-    local volumes="$3"
-    local ports="$4"
-    local extra="$5"
-
+  add_lsio() {
     cat >> "$COMPOSE_FILE" <<EOF
-  $name:
-    image: $image
-    container_name: $name
+  $1:
+    image: $2
+    container_name: $1
     environment:
       - PUID=$PUID
       - PGID=$PGID
       - TZ=UTC
     volumes:
-$volumes
+$3
     ports:
-$ports
-    restart: unless-stopped$extra
+$4
+    restart: unless-stopped
 
 EOF
   }
 
-  # Sonarr
-  if [[ "${INSTALL[sonarr]:-n}" == "y" ]]; then
-    add_service \
-      "sonarr" \
-      "ghcr.io/linuxserver/sonarr:latest" \
+  [[ ${INSTALL[qbittorrent]} == y ]] && add_lsio qbittorrent ghcr.io/linuxserver/qbittorrent:latest \
+"      - $USER_HOME/media/downloads:/downloads
+      - $USER_HOME/qbittorrent:/config" \
+"      - 8080:8080"
+
+  [[ ${INSTALL[sonarr]} == y ]] && add_lsio sonarr ghcr.io/linuxserver/sonarr:latest \
 "      - $USER_HOME/media/tv:/tv
       - $USER_HOME/media/downloads:/downloads
       - $USER_HOME/sonarr:/config" \
-"      - 8989:8989" \
-""
-  fi
+"      - 8989:8989"
 
-  # Radarr
-  if [[ "${INSTALL[radarr]:-n}" == "y" ]]; then
-    add_service \
-      "radarr" \
-      "ghcr.io/linuxserver/radarr:latest" \
+  [[ ${INSTALL[radarr]} == y ]] && add_lsio radarr ghcr.io/linuxserver/radarr:latest \
 "      - $USER_HOME/media/movies:/movies
       - $USER_HOME/media/downloads:/downloads
       - $USER_HOME/radarr:/config" \
-"      - 7878:7878" \
-""
-  fi
+"      - 7878:7878"
 
-  # qBittorrent
-  if [[ "${INSTALL[qbittorrent]:-n}" == "y" ]]; then
-    add_service \
-      "qbittorrent" \
-      "ghcr.io/linuxserver/qbittorrent:latest" \
-"      - $USER_HOME/media/downloads:/downloads
-      - $USER_HOME/qbittorrent:/config" \
-"      - 8080:8080" \
-""
-  fi
-
-  # Bazarr
-  if [[ "${INSTALL[bazarr]:-n}" == "y" ]]; then
-    add_service \
-      "bazarr" \
-      "ghcr.io/linuxserver/bazarr:latest" \
+  [[ ${INSTALL[bazarr]} == y ]] && add_lsio bazarr ghcr.io/linuxserver/bazarr:latest \
 "      - $USER_HOME/media:/media
       - $USER_HOME/bazarr:/config" \
-"      - 6767:6767" \
-""
-  fi
+"      - 6767:6767"
 
-  # Prowlarr
-  if [[ "${INSTALL[prowlarr]:-n}" == "y" ]]; then
-    add_service \
-      "prowlarr" \
-      "ghcr.io/linuxserver/prowlarr:latest" \
+  [[ ${INSTALL[prowlarr]} == y ]] && add_lsio prowlarr ghcr.io/linuxserver/prowlarr:latest \
 "      - $USER_HOME/prowlarr:/config" \
-"      - 9696:9696" \
-""
-  fi
+"      - 9696:9696"
 
-  # Listenarr
-  if [[ "${INSTALL[listenarr]:-n}" == "y" ]]; then
-    cat >> "$COMPOSE_FILE" <<EOF
+  [[ ${INSTALL[jackett]} == y ]] && add_lsio jackett ghcr.io/linuxserver/jackett:latest \
+"      - $USER_HOME/jackett:/config" \
+"      - 9117:9117"
+
+  if [[ ${INSTALL[listenarr]} == y ]]; then
+cat >> "$COMPOSE_FILE" <<EOF
   listenarr:
     image: ghcr.io/therobbiedavis/listenarr:canary
     container_name: listenarr
     user: "$PUID:$PGID"
+    environment:
+      - LISTENARR_PUBLIC_URL=http://localhost:4545
     volumes:
-      - $USER_HOME/listenarr:/app/config
-      - $USER_HOME/media:/media
-      - $USER_HOME/media/downloads:/downloads
+      - listenarr_data:/app/config
     ports:
       - 4545:4545
     restart: unless-stopped
 
+volumes:
+  listenarr_data:
 EOF
   fi
 
-  # Jackett
-  if [[ "${INSTALL[jackett]:-n}" == "y" ]]; then
-    add_service \
-      "jackett" \
-      "ghcr.io/linuxserver/jackett:latest" \
-"      - $USER_HOME/jackett:/config" \
-"      - 9117:9117" \
-""
-  fi
-
   chown "$SEEDUSER:$SEEDUSER" "$COMPOSE_FILE"
-  echo "✅ Docker Compose file created at $COMPOSE_FILE"
 }
 
 start_containers() {
-  echo "🔹 Starting containers..."
   $DOCKER_COMPOSE -f "$COMPOSE_FILE" up -d
   sleep 5
 }
 
 detect_ips() {
-  INTERNAL_IP=$(ip -4 addr show eth0 2>/dev/null | awk '/inet /{print $2}' | cut -d/ -f1 || true)
-  if [[ -z "${INTERNAL_IP:-}" ]]; then
-    INTERNAL_IP=$(hostname -I 2>/dev/null | awk '{print $1}' || true)
-  fi
-  if [[ -z "${INTERNAL_IP:-}" ]]; then
-    INTERNAL_IP="localhost"
-  fi
-
-  EXTERNAL_IP=$(curl -s --max-time 3 https://api.ipify.org || echo "UNKNOWN")
+  INTERNAL_IP=$(hostname -I | awk '{print $1}')
+  EXTERNAL_IP=$(curl -s https://api.ipify.org || echo UNKNOWN)
 }
 
 print_summary() {
   detect_ips
-
-  declare -A PORTS=(
-    [sonarr]=8989
-    [radarr]=7878
-    [qbittorrent]=8080
-    [bazarr]=6767
-    [prowlarr]=9696
-    [listenarr]=4545
-    [jackett]=9117
-  )
-
-  echo
   echo "📊 Summary of running seedbox apps:"
 
-  for c in "${!PORTS[@]}"; do
-    if docker ps --format '{{.Names}}' | grep -qx "$c"; then
-      local port="${PORTS[$c]}"
-      echo " - $c : UP"
-      echo "     Internal URL: http://$INTERNAL_IP:$port"
-      if [[ "$EXTERNAL_IP" != "UNKNOWN" ]]; then
-        echo "     External URL: http://$EXTERNAL_IP:$port ⚠️ Make sure port is open"
-      fi
-    fi
+  for c in sonarr radarr qbittorrent bazarr prowlarr listenarr jackett; do
+    docker ps --format '{{.Names}}' | grep -qx "$c" || continue
+    port=$(docker port "$c" | awk -F: '{print $2}')
+    echo " - $c : UP"
+    echo "     http://$INTERNAL_IP:$port"
   done
-  print_qbittorrent_credentials
 
+  print_qbittorrent_credentials
 }
 
 main "$@"
