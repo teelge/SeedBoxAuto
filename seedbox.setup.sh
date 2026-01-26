@@ -5,10 +5,10 @@ echo "🚀 Seedbox setup started"
 
 # Root check
 if [[ "$(id -u)" -ne 0 ]]; then
-  echo "❌ Please run as root."
-  echo "Use:"
-  echo "curl -fsSL https://raw.githubusercontent.com/teelge/SeedBoxAuto/main/seedbox.setup.sh | sudo bash"
-  exit 1
+    echo "❌ Please run as root."
+    echo "Use:"
+    echo "curl -fsSL https://raw.githubusercontent.com/teelge/SeedBoxAuto/main/seedbox.setup.sh | sudo bash"
+    exit 1
 fi
 
 echo "✅ Running as root"
@@ -21,4 +21,23 @@ if [[ "$create_user" != "y" ]]; then
     exit 0
 fi
 
-echo "User creation selected."
+# Ask for username
+read -p "Enter the new username: " username
+
+# Basic validation: lowercase letters, numbers, dash or underscore
+if [[ ! "$username" =~ ^[a-z_][a-z0-9_-]*$ ]]; then
+    echo "❌ Invalid username. Use lowercase letters, numbers, '-' or '_' only."
+    exit 1
+fi
+
+# Check if user already exists
+if id "$username" &>/dev/null; then
+    echo "❌ User '$username' already exists."
+    exit 1
+fi
+
+# Create the user
+echo "Creating user '$username'..."
+adduser "$username"
+
+echo "✅ User '$username' created successfully"
