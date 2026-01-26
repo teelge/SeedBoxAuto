@@ -87,17 +87,21 @@ for app in sonarr radarr qbittorrent bazarr prowlarr listenarr jackett; do
   read -p "Install $app? (y/n): " INSTALL[$app]
 done
 
+mkdir -p "$COMPOSE_DIR"
+chown -R "$SEEDUSER:$SEEDUSER" "$COMPOSE_DIR"
+
 # -------------------------
-# CREATE MEDIA FOLDERS & PERMISSIONS
+# CREATE MEDIA FOLDERS
 # -------------------------
-mkdir -p "$USER_HOME"/{docker,media/tv,media/movies,media/downloads,qbittorrent}
-chown -R "$SEEDUSER:$SEEDUSER" "$USER_HOME"/{docker,media,qbittorrent}
+mkdir -p "$USER_HOME/media/movies" "$USER_HOME/media/tv" "$USER_HOME/media/downloads"
+chown -R "$SEEDUSER:$SEEDUSER" "$USER_HOME/media"
+chmod -R 775 "$USER_HOME/media"
 
 # -------------------------
 # GENERATE COMPOSE FILE
 # -------------------------
 echo "🔹 Generating Docker Compose file..."
-mkdir -p "$COMPOSE_DIR"
+
 cat > "$COMPOSE_FILE" <<EOF
 version: "3.8"
 services:
@@ -128,7 +132,7 @@ EOF
 [ "${INSTALL[radarr]}" = "y" ] && add_service radarr ghcr.io/linuxserver/radarr:latest "      - $USER_HOME/media/movies:/movies
       - $USER_HOME/media/downloads:/downloads" "7878:7878"
 
-# Fixed qbittorrent: no duplicate /config
+# Qbittorrent — fix duplicate /config
 [ "${INSTALL[qbittorrent]}" = "y" ] && add_service qbittorrent ghcr.io/linuxserver/qbittorrent:latest "      - $USER_HOME/media/downloads:/downloads" "8080:8080"
 
 [ "${INSTALL[bazarr]}" = "y" ] && add_service bazarr ghcr.io/linuxserver/bazarr:latest "      - $USER_HOME/media:/media" "6767:6767"
@@ -182,6 +186,8 @@ for c in sonarr radarr qbittorrent bazarr prowlarr listenarr jackett; do
     if [ "$EXTERNAL_IP" != "UNKNOWN" ]; then
       echo "     External URL: http://$EXTERNAL_IP:$PORT"
     fi
+  else
+    echo " - $c : NOT RUNNING"
   fi
 done
 
