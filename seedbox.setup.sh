@@ -13,14 +13,6 @@ fi
 
 echo "✅ Running as root"
 
-# Ask if user wants to create a new user
-read -p "Do you want to create a new user? (y/n): " create_user
-
-if [[ "$create_user" != "y" ]]; then
-    echo "Skipping user creation."
-    exit 0
-fi
-
 # Ask for username
 read -p "Enter the new username: " username
 
@@ -36,8 +28,23 @@ if id "$username" &>/dev/null; then
     exit 1
 fi
 
+# Ask for password (hidden)
+read -s -p "Enter password for $username: " password
+echo
+read -s -p "Retype password: " password2
+echo
+
+# Check if passwords match
+if [[ "$password" != "$password2" ]]; then
+    echo "❌ Passwords do not match."
+    exit 1
+fi
+
 # Create the user
 echo "Creating user '$username'..."
-adduser "$username"
+adduser --quiet --gecos "" --disabled-password "$username"
+
+# Set the password
+echo "$username:$password" | chpasswd
 
 echo "✅ User '$username' created successfully"
