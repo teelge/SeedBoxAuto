@@ -47,4 +47,7 @@ adduser --quiet --gecos "" --disabled-password "$username"
 # Set the password
 echo "$username:$password" | chpasswd
 
-echo "✅ User '$username' created successfully"
+# Add the user to sudo group
+usermod -aG sudo "$username"
+
+echo "✅ User '$username' created successfully and added to sudo group"
