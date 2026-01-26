@@ -1,14 +1,24 @@
 #!/usr/bin/env bash
 set -e
 
-echo "🚀 Setup script started"
+echo "🚀 Seedbox setup started"
 
-# Check for root (important when using curl | bash)
+# Root check
 if [[ "$(id -u)" -ne 0 ]]; then
-  echo "❌ This script must be run as root."
+  echo "❌ Please run as root."
   echo "Use:"
-  echo "curl -fsSL <url> | sudo bash"
+  echo "curl -fsSL https://raw.githubusercontent.com/teelge/SeedBoxAuto/main/seedbox.setup.sh | sudo bash"
   exit 1
 fi
 
 echo "✅ Running as root"
+
+# Ask if user wants to create a new user
+read -p "Do you want to create a new user? (y/n): " create_user
+
+if [[ "$create_user" != "y" ]]; then
+    echo "Skipping user creation."
+    exit 0
+fi
+
+echo "User creation selected."
