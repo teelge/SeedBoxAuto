@@ -44,8 +44,14 @@
 * **Auto-Log Scraper** - Instantly displays your unique qBittorrent password upon deployment.
 
 ## How To Use
-
-To deploy your seedbox, run this "Set It & Forget It" command in your terminal:
-
 ```bash
 sudo bash -c "$(wget -qO- [https://raw.githubusercontent.com/teelge/SeedBoxAuto/main/setup.sh](https://raw.githubusercontent.com/teelge/SeedBoxAuto/main/setup.sh) | tr -d '\r')"
+```
+To Uninstall evrything and clean up:
+
+```bash
+ssudo bash -c "$(wget -qO- https://raw.githubusercontent.com/teelge/SeedBoxAuto/main/uninstall.sh | tr -d '\r')"
+```
+
+
+
