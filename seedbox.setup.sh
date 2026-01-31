@@ -2,7 +2,7 @@
 
 # --- SeedboxAuto: The Ultimate Media Stack Deployer ---
 # Author: teelge
-# Features: Idempotent, Interactive, Default=Y, Audio-First
+# Features: Idempotent, Multi-Arch (x86/ARM), Interactive, Default=Y
 
 set -e 
 
@@ -12,8 +12,17 @@ if [[ $EUID -ne 0 ]]; then
    exit 1
 fi
 
+# --- NEW: Architecture Detection ---
+ARCH=$(uname -m)
+case $ARCH in
+    x86_64)  ARCH_TYPE="amd64" ;;
+    aarch64|arm64) ARCH_TYPE="arm64" ;;
+    *) echo "Unsupported architecture: $ARCH"; exit 1 ;;
+esac
+
 echo "------------------------------------------------"
-echo "        🚀 STARTING SEEDBOXAUTO DEPLOY         "
+echo "        🚀 STARTING SEEDBOXAUTO DEPLOY          "
+echo "        System: $ARCH ($ARCH_TYPE)              "
 echo "------------------------------------------------"
 
 # 2. User Mapping & Permission Logic
@@ -56,14 +65,22 @@ if [ -d "$DOCKER_DIR" ]; then
     fi
 fi
 
-# 4. Dependency Management
+# 4. Dependency Management (Universal OS Check)
 echo "Verifying Docker installation..."
 if ! command -v docker &> /dev/null; then
-    curl -fsSL https://get.docker.com | sh
+    if command -v apt-get &> /dev/null; then
+        curl -fsSL https://get.docker.com | sh
+    elif command -v pacman &> /dev/null; then
+        pacman -Sy --noconfirm docker docker-compose
+        systemctl enable --now docker
+    fi
 fi
 
-if ! dpkg -l | grep -q docker-compose-plugin; then
-    apt-get update && apt-get install -y docker-compose-plugin
+# Ensure docker-compose-plugin is present (Required for 'docker compose' command)
+if ! docker compose version &> /dev/null; then
+    if command -v apt-get &> /dev/null; then
+        apt-get update && apt-get install -y docker-compose-plugin
+    fi
 fi
 
 usermod -aG docker "$SELECTED_USER"
@@ -88,7 +105,6 @@ for app in "qbittorrent" "sonarr" "radarr" "bazarr" "listenarr" "prowlarr" "jack
 done
 
 # 6. Directory Structure
-# Note: Using 'audio' instead of 'music'
 mkdir -p "$DOCKER_DIR" "$MEDIA_DIR/downloads" "$MEDIA_DIR/tv" "$MEDIA_DIR/movies" "$MEDIA_DIR/audio"
 for app in "${!PORTS[@]}"; do
     mkdir -p "$DOCKER_DIR/$app"
@@ -120,6 +136,7 @@ EOF
 fi
 
 if [[ "${APPS[listenarr]}" == true ]]; then
+    # Note: Using standard linuxserver/airsonic-madsonic style logic or specific multi-arch images
     cat <<EOF >> "$DOCKER_DIR/docker-compose.yml"
   listenarr:
     image: ghcr.io/therobbiedavis/listenarr:canary
@@ -171,7 +188,7 @@ docker compose up -d --remove-orphans
 if [[ "${APPS[qbittorrent]}" == true ]]; then
     echo ""
     echo "Retrieving initial qBittorrent credentials..."
-    sleep 8
+    sleep 10
     QBIT_PASS=$(docker logs qbittorrent 2>&1 | grep "password" | awk '{print $NF}' | head -n 1)
     echo "--- qBittorrent ---"
     echo "Username: admin"
@@ -182,7 +199,7 @@ fi
 INTERNAL_IP=$(hostname -I | awk '{print $1}')
 echo ""
 echo "------------------------------------------------"
-echo "         ✅ DEPLOYMENT SUMMARY                 "
+echo "           ✅ DEPLOYMENT SUMMARY                "
 echo "------------------------------------------------"
 for app in "qbittorrent" "sonarr" "radarr" "bazarr" "listenarr" "prowlarr" "jackett"; do
     if [[ "${APPS[$app]}" == true ]]; then
