@@ -1,7 +1,51 @@
-<h1 align="center">🚀 The "Set It & Forget It" Seedbox Deployer</h1>
-| Welcome to the easiest way to turn your Linux box into a media powerhouse! |
-|---|##  This script is like a personal butler for your server—it handles the messy work (Docker, permissions, networking) while you just sit back and pick your favorite apps.🛠️ One Command to Rule Them AllCopy and paste this into your terminal, hit Enter, and watch the magic happen:
-```
-sudo bash -c "$(wget -qO- https://raw.githubusercontent.com/teelge/SeedBoxAuto/main/seedbox.setup.sh | tr -d '\r')"
-```
-🌟 What This Script Does (The Magic)Smart Permissions: Automatically detects your user (UID 1000) so you never deal with "Permission Denied" errors again.Docker Magic: If you don't have Docker, the butler installs it for you.Interactive Choice: It asks you what you want (Sonarr? Radarr? Listenarr?). Most answers are "Yes" by default, so you can literally just spam the Enter key.Clean Room Tech: If you've run the script before and made a mess, it asks if you want to wipe the slate clean for a fresh start.The Big Reveal: At the end, it scrapes your qBittorrent logs to give you your secret temporary password and lists all your WebUI links.📦 The Buffet Menu (The Apps)AppWhat it doesqBittorrentThe heavy lifter. Downloads your files.Sonarr & RadarrThe organizers. They find your TV shows and Movies.ListenarrThe DJ. Keeps your audio folder jumping.Prowlarr & JackettThe librarians. They search the internet for you.BazarrThe translator. Grabs subtitles so you actually know what's being said.📂 Your New NeighborhoodThe script organizes your world into two main folders:~/docker: Where all the "brains" (configurations) live.~/media: Where the "goods" go:/downloads (The transit zone)/tv (The binge zone)/movies (The popcorn zone)/audio (The jam zone)⚠️ Pro-TipsThe "Enter" Key is your friend: We’ve set the defaults to Yes. If you're feeling lazy, just keep hitting Enter until the dashboard pops up.Safe to Repeat: Run the script as many times as you want. It won't break things—it'll just make sure everything is exactly where it should be.
+<h1 align="center">
+  <br>
+  <img src="https://raw.githubusercontent.com/teelge/SeedBoxAuto/main/logo.png" alt="SeedBoxAuto" width="200">
+  <br>
+  SeedBoxAuto
+  <br>
+</h1>
+
+<h4 align="center">A high-speed, interactive Bash script to deploy a complete Docker-based Media Seedbox.</h4>
+
+<p align="center">
+  <a href="https://github.com/teelge/SeedBoxAuto/stargazers">
+    <img src="https://img.shields.io/github/stars/teelge/SeedBoxAuto.svg?style=flat" alt="Stars">
+  </a>
+  <a href="https://github.com/teelge/SeedBoxAuto/issues">
+    <img src="https://img.shields.io/github/issues/teelge/SeedBoxAuto.svg" alt="Issues">
+  </a>
+  <a href="https://img.shields.io/badge/Docker-Ready-blue.svg?logo=docker&logoColor=white">
+      <img src="https://img.shields.io/badge/Docker-Ready-blue.svg">
+  </a>
+  <a href="https://img.shields.io/badge/License-MIT-green.svg">
+    <img src="https://img.shields.io/badge/License-MIT-green.svg">
+  </a>
+</p>
+
+<p align="center">
+  <a href="#key-features">Key Features</a> •
+  <a href="#how-to-use">How To Use</a> •
+  <a href="#directory-structure">Directory Structure</a> •
+  <a href="#credits">Credits</a> •
+  <a href="#license">License</a>
+</p>
+
+
+
+## Key Features
+
+* **Interactive Setup** - Pick only the apps you need with a simple Y/n toggle.
+* **Smart Defaults** - Built for speed; hit `Enter` to accept the best-practice defaults (Y).
+* **Idempotent & Safe** - Run it once, run it twice; it only changes what is necessary.
+* **Clean Install Option** - Detected an old mess? One click wipes everything for a fresh start.
+* **Permission Hardened** - No more `root` file locking. Uses PUID/PGID mapping for your local user.
+* **Audio-First** - Custom support for **Listenarr** with dedicated `audio` folder mapping.
+* **Auto-Log Scraper** - Instantly displays your unique qBittorrent password upon deployment.
+
+## How To Use
+
+To deploy your seedbox, run this "Set It & Forget It" command in your terminal:
+
+```bash
+sudo bash -c "$(wget -qO- [https://raw.githubusercontent.com/teelge/SeedBoxAuto/main/seedbox.setup.sh](https://raw.githubusercontent.com/teelge/SeedBoxAuto/main/seedbox.setup.sh) | tr -d '\r')"
