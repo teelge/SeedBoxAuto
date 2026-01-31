@@ -1,4 +1,4 @@
-🚀 The "Set It & Forget It" Seedbox Deployer
+<h1 align="center">🚀 The "Set It & Forget It" Seedbox Deployer</h1>
 ## Welcome to the easiest way to turn your Linux box into a media powerhouse! This script is like a personal butler for your server—it handles the messy work (Docker, permissions, networking) while you just sit back and pick your favorite apps.🛠️ One Command to Rule Them AllCopy and paste this into your terminal, hit Enter, and watch the magic happen:
 ```
 sudo bash -c "$(wget -qO- https://raw.githubusercontent.com/teelge/SeedBoxAuto/main/seedbox.setup.sh | tr -d '\r')"
