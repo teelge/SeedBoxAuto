@@ -15,11 +15,11 @@
   <a href="https://github.com/teelge/SeedBoxAuto/issues">
     <img src="https://img.shields.io/github/issues/teelge/SeedBoxAuto.svg" alt="Issues">
   </a>
+  <a href="https://img.shields.io/badge/Architecture-x86__64%20%7C%20ARM64-orange.svg">
+      <img src="https://img.shields.io/badge/Architecture-x86__64%20%7C%20ARM64-orange.svg">
+  </a>
   <a href="https://img.shields.io/badge/Docker-Ready-blue.svg?logo=docker&logoColor=white">
       <img src="https://img.shields.io/badge/Docker-Ready-blue.svg">
-  </a>
-  <a href="https://img.shields.io/badge/License-MIT-green.svg">
-    <img src="https://img.shields.io/badge/License-MIT-green.svg">
   </a>
 </p>
 
@@ -27,17 +27,17 @@
   <a href="#key-features">Key Features</a> •
   <a href="#how-to-use">How To Use</a> •
   <a href="#directory-structure">Directory Structure</a> •
-  <a href="#credits">Credits</a> •
+  <a href="#uninstall">Uninstall</a> •
   <a href="#license">License</a>
 </p>
 
-
+---
 
 ## Key Features
 
+* **Universal Compatibility** - Automatically detects your OS (**Debian, Ubuntu, Arch**) and CPU (**Intel/AMD or Raspberry Pi**).
 * **Interactive Setup** - Pick only the apps you need with a simple Y/n toggle.
 * **Smart Defaults** - Built for speed; hit `Enter` to accept the best-practice defaults (Y).
-* **Idempotent & Safe** - Run it once, run it twice; it only changes what is necessary.
 * **Clean Install Option** - Detected an old mess? One click wipes everything for a fresh start.
 * **Permission Hardened** - No more `root` file locking. Uses PUID/PGID mapping for your local user.
 * **Audio-First** - Custom support for **Listenarr** with dedicated `audio` folder mapping.
@@ -48,4 +48,4 @@
 To deploy your seedbox, run this "Set It & Forget It" command in your terminal:
 
 ```bash
-sudo bash -c "$(wget -qO- [https://raw.githubusercontent.com/teelge/SeedBoxAuto/main/seedbox.setup.sh](https://raw.githubusercontent.com/teelge/SeedBoxAuto/main/seedbox.setup.sh) | tr -d '\r')"
+sudo bash -c "$(wget -qO- [https://raw.githubusercontent.com/teelge/SeedBoxAuto/main/setup.sh](https://raw.githubusercontent.com/teelge/SeedBoxAuto/main/setup.sh) | tr -d '\r')"
