@@ -43,12 +43,12 @@
 
 ## How To Use
 ```bash
-sudo bash -c "$(wget -qO- https://raw.githubusercontent.com/teelge/SeedBoxAuto/main/seedbox.setup.sh | tr -d '\r')"
+sudo bash -c "$(wget -O- https://raw.githubusercontent.com/teelge/SeedBoxAuto/main/seedbox.setup.sh | tr -d '\r')"
 ```
 To Uninstall evrything and clean up:
 
 ```bash
-sudo bash -c "$(wget -qO- https://raw.githubusercontent.com/teelge/SeedBoxAuto/main/uninstall.sh | tr -d '\r')"
+sudo bash -c "$(wget -O- https://raw.githubusercontent.com/teelge/SeedBoxAuto/main/uninstall.sh | tr -d '\r')"
 ```
 
 
