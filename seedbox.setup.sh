@@ -1,8 +1,8 @@
 #!/bin/bash
 
-# --- Professional Seedbox Automation Script ---
-# Idempotent, interactive, and permission-hardened.
-# Folder mapping: ~/media/audio | Default Selection: Yes
+# --- SeedboxAuto: The Ultimate Media Stack Deployer ---
+# Author: teelge
+# Features: Idempotent, Interactive, Default=Y, Audio-First
 
 set -e 
 
@@ -12,20 +12,23 @@ if [[ $EUID -ne 0 ]]; then
    exit 1
 fi
 
-echo "--- Seedbox Auto-Deployer ---"
+echo "------------------------------------------------"
+echo "        🚀 STARTING SEEDBOXAUTO DEPLOY         "
+echo "------------------------------------------------"
 
-# 2. User Mapping
+# 2. User Mapping & Permission Logic
 EXISTING_USERS=$(awk -F: '$3 >= 1000 && $3 != 65534 {print $1}' /etc/passwd)
 
 if [[ -z "$EXISTING_USERS" ]]; then
     SELECTED_USER="seeduser"
     [[ ! -d "/home/$SELECTED_USER" ]] && useradd -m -s /bin/bash "$SELECTED_USER"
 else
-    echo "Existing users found: $EXISTING_USERS"
+    echo "Found existing users: $EXISTING_USERS"
     read -p "Enter username to use [Default: seeduser]: " SELECTED_USER
     SELECTED_USER=${SELECTED_USER:-seeduser}
     if ! id "$SELECTED_USER" &>/dev/null; then
         useradd -m -s /bin/bash "$SELECTED_USER"
+        echo "Created new user: $SELECTED_USER"
     fi
 fi
 
@@ -37,8 +40,9 @@ MEDIA_DIR="$USER_HOME/media"
 
 # 3. Clean Install Logic
 if [ -d "$DOCKER_DIR" ]; then
-    echo -e "\n[!] Existing configuration detected in $DOCKER_DIR"
-    read -p "Perform a CLEAN INSTALL? (This deletes ALL data/configs!) [y/N (default: N)]: " clean_choice
+    echo ""
+    echo "[!] WARNING: Existing configuration detected in $DOCKER_DIR"
+    read -p "Perform a CLEAN INSTALL? (This wipes ALL configs & media!) [y/N (default: N)]: " clean_choice
     clean_choice=${clean_choice:-n}
     
     if [[ "$clean_choice" =~ ^[Yy]$ ]]; then
@@ -46,15 +50,15 @@ if [ -d "$DOCKER_DIR" ]; then
         cd "$DOCKER_DIR" && docker compose down --rmi all -v --remove-orphans || true
         rm -rf "$DOCKER_DIR"
         rm -rf "$MEDIA_DIR"
-        echo "Cleanup complete. Starting fresh install."
+        echo "Cleanup complete. Starting fresh install..."
     else
         echo "Proceeding with update/reconfiguration..."
     fi
 fi
 
 # 4. Dependency Management
+echo "Verifying Docker installation..."
 if ! command -v docker &> /dev/null; then
-    echo "Installing Docker..."
     curl -fsSL https://get.docker.com | sh
 fi
 
@@ -71,8 +75,8 @@ declare -A PORTS=(
     ["bazarr"]="6767" ["listenarr"]="4545" ["prowlarr"]="9696" ["jackett"]="9117" 
 )
 
-echo -e "\n--- Application Selection (Press Enter for Yes) ---"
-# Explicit order for the loop
+echo ""
+echo "--- Application Selection (Press Enter to accept ALL defaults) ---"
 for app in "qbittorrent" "sonarr" "radarr" "bazarr" "listenarr" "prowlarr" "jackett"; do
     read -p "Install $app? [Y/n (default: Y)]: " choice
     choice=${choice:-y}
@@ -84,8 +88,11 @@ for app in "qbittorrent" "sonarr" "radarr" "bazarr" "listenarr" "prowlarr" "jack
 done
 
 # 6. Directory Structure
+# Note: Using 'audio' instead of 'music'
 mkdir -p "$DOCKER_DIR" "$MEDIA_DIR/downloads" "$MEDIA_DIR/tv" "$MEDIA_DIR/movies" "$MEDIA_DIR/audio"
-for app in "${!PORTS[@]}"; do mkdir -p "$DOCKER_DIR/$app"; done
+for app in "${!PORTS[@]}"; do
+    mkdir -p "$DOCKER_DIR/$app"
+done
 
 # 7. Dynamic Docker Compose Generation
 cat <<EOF > "$DOCKER_DIR/docker-compose.yml"
@@ -160,19 +167,27 @@ chown -R "$PUID:$PGID" "$DOCKER_DIR" "$MEDIA_DIR"
 cd "$DOCKER_DIR"
 docker compose up -d --remove-orphans
 
-# 8. Post-Deployment Info
+# 8. Post-Deployment Intelligence
 if [[ "${APPS[qbittorrent]}" == true ]]; then
-    echo "Grabbing qBittorrent password..."
+    echo ""
+    echo "Retrieving initial qBittorrent credentials..."
     sleep 8
     QBIT_PASS=$(docker logs qbittorrent 2>&1 | grep "password" | awk '{print $NF}' | head -n 1)
-    echo -e "\n--- qBittorrent --- \nUser: admin | Pass: ${QBIT_PASS:-Check Logs}"
+    echo "--- qBittorrent ---"
+    echo "Username: admin"
+    echo "Password: ${QBIT_PASS:-Check 'docker logs qbittorrent'}"
 fi
 
+# 9. Status Dashboard
 INTERNAL_IP=$(hostname -I | awk '{print $1}')
-echo -e "\n--- Status Dashboard ---"
+echo ""
+echo "------------------------------------------------"
+echo "         ✅ DEPLOYMENT SUMMARY                 "
+echo "------------------------------------------------"
 for app in "qbittorrent" "sonarr" "radarr" "bazarr" "listenarr" "prowlarr" "jackett"; do
     if [[ "${APPS[$app]}" == true ]]; then
-        STATUS=$(docker inspect -f '{{.State.Status}}' "$app" 2>/dev/null || echo "offline")
+        STATUS=$(docker inspect -f '{{.State.Status}}' "$app" 2>/dev/null || echo "not found")
         printf "%-12s : http://%s:%-5s [%s]\n" "$app" "$INTERNAL_IP" "${PORTS[$app]}" "$STATUS"
     fi
 done
+echo "------------------------------------------------"
