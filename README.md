@@ -1,7 +1,5 @@
 <h1 align="center">
-  <br>
-  <img src="https://raw.githubusercontent.com/teelge/SeedBoxAuto/main/logo.png" alt="SeedBoxAuto" width="200">
-  <br>
+ 
   SeedBoxAuto
   <br>
 </h1>
