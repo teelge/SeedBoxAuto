@@ -1,7 +1,8 @@
 #!/bin/bash
 
 # --- Professional Seedbox Automation Script ---
-# Idempotent, interactive, and supports Clean Install.
+# Idempotent, interactive, and permission-hardened.
+# Folder mapping: ~/media/audio | Default Selection: Yes
 
 set -e 
 
@@ -37,7 +38,7 @@ MEDIA_DIR="$USER_HOME/media"
 # 3. Clean Install Logic
 if [ -d "$DOCKER_DIR" ]; then
     echo -e "\n[!] Existing configuration detected in $DOCKER_DIR"
-    read -p "Perform a CLEAN INSTALL? (This deletes ALL data/configs!) [y/N]: " clean_choice
+    read -p "Perform a CLEAN INSTALL? (This deletes ALL data/configs!) [y/N (default: N)]: " clean_choice
     clean_choice=${clean_choice:-n}
     
     if [[ "$clean_choice" =~ ^[Yy]$ ]]; then
@@ -71,14 +72,19 @@ declare -A PORTS=(
 )
 
 echo -e "\n--- Application Selection (Press Enter for Yes) ---"
+# Explicit order for the loop
 for app in "qbittorrent" "sonarr" "radarr" "bazarr" "listenarr" "prowlarr" "jackett"; do
-    read -p "Install $app? [Y/n]: " choice
+    read -p "Install $app? [Y/n (default: Y)]: " choice
     choice=${choice:-y}
-    [[ "$choice" =~ ^[Nn]$ ]] && APPS[$app]=false || APPS[$app]=true
+    if [[ "$choice" =~ ^[Nn]$ ]]; then
+        APPS[$app]=false
+    else
+        APPS[$app]=true
+    fi
 done
 
 # 6. Directory Structure
-mkdir -p "$DOCKER_DIR" "$MEDIA_DIR/downloads" "$MEDIA_DIR/tv" "$MEDIA_DIR/movies" "$MEDIA_DIR/music"
+mkdir -p "$DOCKER_DIR" "$MEDIA_DIR/downloads" "$MEDIA_DIR/tv" "$MEDIA_DIR/movies" "$MEDIA_DIR/audio"
 for app in "${!PORTS[@]}"; do mkdir -p "$DOCKER_DIR/$app"; done
 
 # 7. Dynamic Docker Compose Generation
@@ -116,7 +122,7 @@ if [[ "${APPS[listenarr]}" == true ]]; then
       - LISTENARR_PUBLIC_URL=http://$(hostname -I | awk '{print $1}'):4545
     volumes:
       - $DOCKER_DIR/listenarr:/app/config
-      - $MEDIA_DIR/music:/music
+      - $MEDIA_DIR/audio:/audio
     ports:
       - 4545:4545
     restart: unless-stopped
@@ -129,12 +135,16 @@ add_ls_container() {
   $name:
     image: lscr.io/linuxserver/$name:latest
     container_name: $name
-    environment: { PUID: $PUID, PGID: $PGID, TZ: UTC }
+    environment:
+      - PUID=$PUID
+      - PGID=$PGID
+      - TZ=UTC
     volumes:
       - $DOCKER_DIR/$name:/config
       - $MEDIA_DIR/$vol:/$vol
       - $MEDIA_DIR/downloads:/downloads
-    ports: [ "$port:$port" ]
+    ports:
+      - $port:$port
     restart: unless-stopped
 EOF
 }
