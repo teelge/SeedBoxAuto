@@ -31,31 +31,31 @@ USER_HOME=$(eval echo "~$SELECTED_USER")
 DOCKER_DIR="$USER_HOME/docker"
 MEDIA_DIR="$USER_HOME/media"
 
-# 3. Final Warning
+# 3. Final Warning (Default is YES)
 echo ""
-echo "⚠️  DANGER: This will delete:"
-echo "   - All Docker Containers (qBit, Sonarr, etc.)"
-echo "   - All App Configurations"
-echo "   - ALL DOWNLOADED MEDIA ($MEDIA_DIR)"
-echo ""
-read -p "Are you sure? Type 'CONFIRM' to proceed: " final_check
+echo "⚠️  DANGER: This will delete ALL media, configs, and containers."
+read -p "Are you sure you want to wipe everything? [Y/n]: " confirm
+confirm=${confirm:-y} # This makes Enter = Yes
 
-if [[ "$final_check" != "CONFIRM" ]]; then
+if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
     echo "Cleanup aborted."
     exit 1
 fi
+
+echo "[!] Proceeding with full cleanup..."
 
 # 4. Stop and Wipe Docker
 if [ -d "$DOCKER_DIR" ]; then
     echo "[*] Shutting down services and removing images..."
     cd "$DOCKER_DIR"
+    # Stop containers and remove volumes/images
     docker compose down --rmi all -v --remove-orphans || true
 else
-    echo "[!] Docker directory not found at $DOCKER_DIR"
+    echo "[!] Docker directory not found at $DOCKER_DIR. Skipping Docker wipe."
 fi
 
 # 5. Remove Folders
-echo "[*] Removing data folders..."
+echo "[*] Removing data folders at $DOCKER_DIR and $MEDIA_DIR..."
 rm -rf "$DOCKER_DIR"
 rm -rf "$MEDIA_DIR"
 
