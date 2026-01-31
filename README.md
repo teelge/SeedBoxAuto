@@ -50,7 +50,7 @@ sudo bash -c "$(wget -qO- [https://raw.githubusercontent.com/teelge/SeedBoxAuto/
 To Uninstall evrything and clean up:
 
 ```bash
-ssudo bash -c "$(wget -qO- https://raw.githubusercontent.com/teelge/SeedBoxAuto/main/uninstall.sh | tr -d '\r')"
+sudo bash -c "$(wget -qO- https://raw.githubusercontent.com/teelge/SeedBoxAuto/main/uninstall.sh | tr -d '\r')"
 ```
 
 
