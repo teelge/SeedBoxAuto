@@ -28,7 +28,7 @@ if [[ "$USE_EXISTING" == "y" ]]; then
   id "$SEEDUSER" >/dev/null 2>&1 || { echo "❌ User not found"; exit 1; }
 else
   read -p "Enter new username: " SEEDUSER
-  adduser "$SEEDUSER"
+  adduser --gecos "" "$SEEDUSER"
 fi
 
 USER_HOME=$(eval echo "~$SEEDUSER")
@@ -84,7 +84,11 @@ echo "✅ Docker daemon running"
 declare -A INSTALL
 
 for app in sonarr radarr qbittorrent bazarr prowlarr listenarr jackett; do
-  read -p "Install $app? (y/n): " INSTALL[$app]
+  read -p "Install $app? [Y/n]: " val
+  if [[ -z "$val" ]]; then
+    val="y"
+  fi
+  INSTALL[$app]=$val
 done
 
 mkdir -p "$COMPOSE_DIR"
@@ -156,7 +160,7 @@ echo "✅ Docker Compose file created at $COMPOSE_FILE"
 # -------------------------
 echo "🔹 Starting containers..."
 docker-compose -f "$COMPOSE_FILE" up -d
-sleep 10  # wait for slow machines
+sleep 10
 
 # -------------------------
 # GET QBittorrent TEMP PASSWORD
@@ -183,13 +187,13 @@ for c in sonarr radarr qbittorrent bazarr prowlarr listenarr jackett; do
   if docker ps --format '{{.Names}}' | grep -q "^$c$"; then
     PORT=$(docker port $c | head -n1 | awk -F: '{print $2}')
     echo " - $c : UP"
-    echo "     Internal URL: http://$INTERNAL_IP:$PORT"
+    echo "      Internal URL: http://$INTERNAL_IP:$PORT"
     if [ "$EXTERNAL_IP" != "UNKNOWN" ]; then
-      echo "     External URL: http://$EXTERNAL_IP:$PORT ⚠️ Make sure port is open"
+      echo "      External URL: http://$EXTERNAL_IP:$PORT ⚠️ Make sure port is open"
     fi
     if [ "$c" = "qbittorrent" ]; then
-      echo "     WebUI username: $QBT_USER"
-      echo "     WebUI temporary password: $QBT_PASS"
+      echo "      WebUI username: $QBT_USER"
+      echo "      WebUI temporary password: $QBT_PASS"
     fi
   fi
 done
