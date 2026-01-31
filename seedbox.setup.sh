@@ -1,6 +1,9 @@
 #!/bin/bash
 
-# --- SeedboxAuto: The Ultimate Media Stack Deployer (VERBOSE VERSION) ---
+# --- SeedboxAuto: The Ultimate Media Stack Deployer ---
+# Author: teelge
+# Features: Idempotent, Multi-Arch (x86/ARM), Interactive, Default=Y
+
 set -e 
 
 # 1. Root Check
@@ -9,7 +12,7 @@ if [[ $EUID -ne 0 ]]; then
    exit 1
 fi
 
-# Architecture Detection
+# --- NEW: Architecture Detection ---
 ARCH=$(uname -m)
 case $ARCH in
     x86_64)  ARCH_TYPE="amd64" ;;
@@ -22,7 +25,7 @@ echo "        🚀 STARTING SEEDBOXAUTO DEPLOY          "
 echo "        System: $ARCH ($ARCH_TYPE)              "
 echo "------------------------------------------------"
 
-# 2. User Mapping
+# 2. User Mapping & Permission Logic
 EXISTING_USERS=$(awk -F: '$3 >= 1000 && $3 != 65534 {print $1}' /etc/passwd)
 
 if [[ -z "$EXISTING_USERS" ]]; then
@@ -48,7 +51,7 @@ MEDIA_DIR="$USER_HOME/media"
 if [ -d "$DOCKER_DIR" ]; then
     echo ""
     echo "[!] WARNING: Existing configuration detected in $DOCKER_DIR"
-    read -p "Perform a CLEAN INSTALL? [y/N]: " clean_choice
+    read -p "Perform a CLEAN INSTALL? (This wipes ALL configs & media!) [y/N (default: N)]: " clean_choice
     clean_choice=${clean_choice:-n}
     
     if [[ "$clean_choice" =~ ^[Yy]$ ]]; then
@@ -56,27 +59,27 @@ if [ -d "$DOCKER_DIR" ]; then
         cd "$DOCKER_DIR" && docker compose down --rmi all -v --remove-orphans || true
         rm -rf "$DOCKER_DIR"
         rm -rf "$MEDIA_DIR"
+        echo "Cleanup complete. Starting fresh install..."
+    else
+        echo "Proceeding with update/reconfiguration..."
     fi
 fi
 
-# 4. Dependency Management (VERBOSITY ADDED HERE)
+# 4. Dependency Management (Universal OS Check)
 echo "Verifying Docker installation..."
 if ! command -v docker &> /dev/null; then
-    echo "Docker not found. Starting official installer with progress..."
     if command -v apt-get &> /dev/null; then
-        # Removed the 'sh -s -- --quiet' logic to show full install progress
-        curl -fsSL https://get.docker.com | sh 
+        curl -fsSL https://get.docker.com | sh
     elif command -v pacman &> /dev/null; then
         pacman -Sy --noconfirm docker docker-compose
         systemctl enable --now docker
     fi
 fi
 
+# Ensure docker-compose-plugin is present (Required for 'docker compose' command)
 if ! docker compose version &> /dev/null; then
-    echo "Installing Docker Compose Plugin..."
     if command -v apt-get &> /dev/null; then
-        apt-get update # Removed -qq
-        apt-get install -y docker-compose-plugin
+        apt-get update && apt-get install -y docker-compose-plugin
     fi
 fi
 
@@ -90,11 +93,15 @@ declare -A PORTS=(
 )
 
 echo ""
-echo "--- Application Selection ---"
+echo "--- Application Selection (Press Enter to accept ALL defaults) ---"
 for app in "qbittorrent" "sonarr" "radarr" "bazarr" "listenarr" "prowlarr" "jackett"; do
-    read -p "Install $app? [Y/n]: " choice
+    read -p "Install $app? [Y/n (default: Y)]: " choice
     choice=${choice:-y}
-    [[ "$choice" =~ ^[Nn]$ ]] && APPS[$app]=false || APPS[$app]=true
+    if [[ "$choice" =~ ^[Nn]$ ]]; then
+        APPS[$app]=false
+    else
+        APPS[$app]=true
+    fi
 done
 
 # 6. Directory Structure
@@ -108,20 +115,91 @@ cat <<EOF > "$DOCKER_DIR/docker-compose.yml"
 services:
 EOF
 
-# (Logic for adding containers is same as your script...)
-# [Truncated for brevity, but keep your existing app logic here]
+if [[ "${APPS[qbittorrent]}" == true ]]; then
+    cat <<EOF >> "$DOCKER_DIR/docker-compose.yml"
+  qbittorrent:
+    image: lscr.io/linuxserver/qbittorrent:latest
+    container_name: qbittorrent
+    environment:
+      - PUID=$PUID
+      - PGID=$PGID
+      - TZ=UTC
+    volumes:
+      - $DOCKER_DIR/qbittorrent:/config
+      - $MEDIA_DIR/downloads:/downloads
+    ports:
+      - 8080:8080
+      - 6881:6881
+      - 6881:6881/udp
+    restart: unless-stopped
+EOF
+fi
 
-# 8. Startup (SHOWING PULL PROGRESS)
-echo "Pulling images and starting containers..."
+if [[ "${APPS[listenarr]}" == true ]]; then
+    # Note: Using standard linuxserver/airsonic-madsonic style logic or specific multi-arch images
+    cat <<EOF >> "$DOCKER_DIR/docker-compose.yml"
+  listenarr:
+    image: ghcr.io/therobbiedavis/listenarr:canary
+    container_name: listenarr
+    user: "$PUID:$PGID"
+    environment:
+      - LISTENARR_PUBLIC_URL=http://$(hostname -I | awk '{print $1}'):4545
+    volumes:
+      - $DOCKER_DIR/listenarr:/app/config
+      - $MEDIA_DIR/audio:/audio
+    ports:
+      - 4545:4545
+    restart: unless-stopped
+EOF
+fi
+
+add_ls_container() {
+    local name=$1 port=$2 vol=$3
+    cat <<EOF >> "$DOCKER_DIR/docker-compose.yml"
+  $name:
+    image: lscr.io/linuxserver/$name:latest
+    container_name: $name
+    environment:
+      - PUID=$PUID
+      - PGID=$PGID
+      - TZ=UTC
+    volumes:
+      - $DOCKER_DIR/$name:/config
+      - $MEDIA_DIR/$vol:/$vol
+      - $MEDIA_DIR/downloads:/downloads
+    ports:
+      - $port:$port
+    restart: unless-stopped
+EOF
+}
+
+[[ "${APPS[sonarr]}" == true ]] && add_ls_container "sonarr" "8989" "tv"
+[[ "${APPS[radarr]}" == true ]] && add_ls_container "radarr" "7878" "movies"
+[[ "${APPS[bazarr]}" == true ]] && add_ls_container "bazarr" "6767" "movies"
+[[ "${APPS[prowlarr]}" == true ]] && add_ls_container "prowlarr" "9696" "downloads"
+[[ "${APPS[jackett]}" == true ]] && add_ls_container "jackett" "9117" "downloads"
+
+# Permissions and Startup
 chown -R "$PUID:$PGID" "$DOCKER_DIR" "$MEDIA_DIR"
 cd "$DOCKER_DIR"
-# This will now show the download progress bars for every image
 docker compose up -d --remove-orphans
+
+# 8. Post-Deployment Intelligence
+if [[ "${APPS[qbittorrent]}" == true ]]; then
+    echo ""
+    echo "Retrieving initial qBittorrent credentials..."
+    sleep 10
+    QBIT_PASS=$(docker logs qbittorrent 2>&1 | grep "password" | awk '{print $NF}' | head -n 1)
+    echo "--- qBittorrent ---"
+    echo "Username: admin"
+    echo "Password: ${QBIT_PASS:-Check 'docker logs qbittorrent'}"
+fi
 
 # 9. Status Dashboard
 INTERNAL_IP=$(hostname -I | awk '{print $1}')
+echo ""
 echo "------------------------------------------------"
-echo "            ✅ DEPLOYMENT SUMMARY               "
+echo "           ✅ DEPLOYMENT SUMMARY                "
 echo "------------------------------------------------"
 for app in "qbittorrent" "sonarr" "radarr" "bazarr" "listenarr" "prowlarr" "jackett"; do
     if [[ "${APPS[$app]}" == true ]]; then
@@ -129,3 +207,4 @@ for app in "qbittorrent" "sonarr" "radarr" "bazarr" "listenarr" "prowlarr" "jack
         printf "%-12s : http://%s:%-5s [%s]\n" "$app" "$INTERNAL_IP" "${PORTS[$app]}" "$STATUS"
     fi
 done
+echo "------------------------------------------------"
