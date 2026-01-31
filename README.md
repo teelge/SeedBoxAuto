@@ -36,10 +36,10 @@
 ## Key Features
 
 * **Universal Compatibility** - Automatically detects your OS (**Debian, Ubuntu, Arch**) and CPU (**Intel/AMD or Raspberry Pi**).
-* **Interactive Setup** - Pick only the apps you need with a simple Y/n toggle.
-* **Smart Defaults** - Built for speed; hit `Enter` to accept the best-practice defaults (Y).
-* **Clean Install Option** - Detected an old mess? One click wipes everything for a fresh start.
-* **Permission Hardened** - No more `root` file locking. Uses PUID/PGID mapping for your local user.
+* **Interactive Setup** - Pick only the apps you need with a simple **Y/n** toggle.
+* **Smart Defaults** - Built for speed; hit `Enter` to accept the best-practice defaults (**Yes**).
+* **Idempotent & Safe** - Run it once, run it twice; it only changes what is necessary.
+* **Permission Hardened** - Automatically uses **PUID/PGID** mapping to prevent root-owned file locks.
 * **Audio-First** - Custom support for **Listenarr** with dedicated `audio` folder mapping.
 * **Auto-Log Scraper** - Instantly displays your unique qBittorrent password upon deployment.
 
