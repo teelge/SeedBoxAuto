@@ -1,9 +1,9 @@
 #!/bin/bash
 
-# --- Seedbox Automation Script ---
-# Idempotent, interactive, and professional.
+# --- Professional Seedbox Automation Script ---
+# Idempotent, interactive, and Listenarr-ready.
 
-set -e # Exit on error
+set -e 
 
 # 1. Root Check
 if [[ $EUID -ne 0 ]]; then
@@ -14,7 +14,8 @@ fi
 echo "--- Starting Seedbox Deployment ---"
 
 # 2. User Mapping & Permission Logic
-EXISTING_USERS=$(awk -F' ' '{ if ($3 >= 1000 && $3 != 65534) print $1 }' /etc/passwd)
+# Searches for non-system users with UID >= 1000
+EXISTING_USERS=$(awk -F: '$3 >= 1000 && $3 != 65534 {print $1}' /etc/passwd)
 
 if [[ -z "$EXISTING_USERS" ]]; then
     echo "No non-root users found. Creating 'seeduser'..."
@@ -22,7 +23,8 @@ if [[ -z "$EXISTING_USERS" ]]; then
     SELECTED_USER="seeduser"
 else
     echo "Existing users found: $EXISTING_USERS"
-    read -p "Enter username to use (or type 'seeduser' to create new): " SELECTED_USER
+    read -p "Enter username to use (Default: seeduser): " SELECTED_USER
+    SELECTED_USER=${SELECTED_USER:-seeduser}
     if ! id "$SELECTED_USER" &>/dev/null; then
         useradd -m -s /bin/bash "$SELECTED_USER"
         echo "Created user $SELECTED_USER."
@@ -53,13 +55,18 @@ usermod -aG docker "$SELECTED_USER"
 declare -A APPS
 declare -A PORTS=( 
     ["qbittorrent"]="8080" ["sonarr"]="8989" ["radarr"]="7878" 
-    ["bazarr"]="6767" ["lidarr"]="8686" ["prowlarr"]="9696" ["jackett"]="9117" 
+    ["bazarr"]="6767" ["listenarr"]="4545" ["prowlarr"]="9696" ["jackett"]="9117" 
 )
 
-echo "--- Application Selection ---"
-for app in "${!PORTS[@]}"; do
-    read -p "Install $app? (Y/n): " choice
-    [[ "$choice" =~ ^[Nn]$ ]] && APPS[$app]=false || APPS[$app]=true
+echo -e "\n--- Application Selection (Press Enter for Yes) ---"
+for app in "qbittorrent" "sonarr" "radarr" "bazarr" "listenarr" "prowlarr" "jackett"; do
+    read -p "Install $app? [Y/n]: " choice
+    choice=${choice:-y} # Default to 'y' if Enter is pressed
+    if [[ "$choice" =~ ^[Nn]$ ]]; then
+        APPS[$app]=false
+    else
+        APPS[$app]=true
+    fi
 done
 
 # 5. Directory Structure
@@ -71,7 +78,7 @@ cat <<EOF > "$DOCKER_DIR/docker-compose.yml"
 services:
 EOF
 
-# Append services based on selection
+# --- Container: qBittorrent ---
 if [[ "${APPS[qbittorrent]}" == true ]]; then
     cat <<EOF >> "$DOCKER_DIR/docker-compose.yml"
   qbittorrent:
@@ -93,7 +100,25 @@ if [[ "${APPS[qbittorrent]}" == true ]]; then
 EOF
 fi
 
-# Function to add LinuxServer containers easily
+# --- Container: Listenarr ---
+if [[ "${APPS[listenarr]}" == true ]]; then
+    cat <<EOF >> "$DOCKER_DIR/docker-compose.yml"
+  listenarr:
+    image: ghcr.io/therobbiedavis/listenarr:canary
+    container_name: listenarr
+    user: "$PUID:$PGID"
+    environment:
+      - LISTENARR_PUBLIC_URL=http://$(hostname -I | awk '{print $1}'):4545
+    volumes:
+      - $DOCKER_DIR/listenarr:/app/config
+      - $MEDIA_DIR/music:/music
+    ports:
+      - 4545:4545
+    restart: unless-stopped
+EOF
+fi
+
+# Helper for LinuxServer images
 add_ls_container() {
     local name=$1
     local port=$2
@@ -119,37 +144,36 @@ EOF
 [[ "${APPS[sonarr]}" == true ]] && add_ls_container "sonarr" "8989" "tv"
 [[ "${APPS[radarr]}" == true ]] && add_ls_container "radarr" "7878" "movies"
 [[ "${APPS[bazarr]}" == true ]] && add_ls_container "bazarr" "6767" "movies"
-[[ "${APPS[lidarr]}" == true ]] && add_ls_container "lidarr" "8686" "music"
 [[ "${APPS[prowlarr]}" == true ]] && add_ls_container "prowlarr" "9696" "downloads"
 [[ "${APPS[jackett]}" == true ]] && add_ls_container "jackett" "9117" "downloads"
 
 chown "$PUID:$PGID" "$DOCKER_DIR/docker-compose.yml"
 
 # 7. Post-Deployment Intelligence
-echo "Starting containers..."
+echo -e "\nDeploying containers..."
 cd "$DOCKER_DIR"
 docker compose up -d
 
 # Scrape qBittorrent password
 if [[ "${APPS[qbittorrent]}" == true ]]; then
-    echo "Waiting for qBittorrent to generate credentials..."
+    echo "Extracting initial qBittorrent password..."
     sleep 5
-    QBIT_PASS=$(docker logs qbittorrent 2>&1 | grep "password" | awk '{print $NF}')
-    echo "--- qBittorrent Security ---"
-    echo "Temporary Password: $QBIT_PASS"
+    QBIT_PASS=$(docker logs qbittorrent 2>&1 | grep "password" | awk '{print $NF}' | head -n 1)
+    echo -e "\n--- qBittorrent Credentials ---"
     echo "Username: admin"
+    echo "Password: $QBIT_PASS"
 fi
 
 # 8. Status Dashboard
 INTERNAL_IP=$(hostname -I | awk '{print $1}')
-EXTERNAL_IP=$(curl -s https://ifconfig.me)
+EXTERNAL_IP=$(curl -s --max-time 5 https://ifconfig.me || echo "N/A")
 
 echo -e "\n--- Deployment Summary ---"
 echo "Internal: http://$INTERNAL_IP"
 echo "External: http://$EXTERNAL_IP"
 echo "---------------------------"
 
-for app in "${!APPS[@]}"; do
+for app in "qbittorrent" "sonarr" "radarr" "bazarr" "listenarr" "prowlarr" "jackett"; do
     if [[ "${APPS[$app]}" == true ]]; then
         printf "%-12s : http://%s:%s\n" "$app" "$INTERNAL_IP" "${PORTS[$app]}"
     fi
