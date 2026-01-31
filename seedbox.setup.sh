@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # --- Professional Seedbox Automation Script ---
-# Idempotent, interactive, and Listenarr-ready.
+# Idempotent, interactive, and permission-hardened.
 
 set -e 
 
@@ -14,7 +14,6 @@ fi
 echo "--- Starting Seedbox Deployment ---"
 
 # 2. User Mapping & Permission Logic
-# Searches for non-system users with UID >= 1000
 EXISTING_USERS=$(awk -F: '$3 >= 1000 && $3 != 65534 {print $1}' /etc/passwd)
 
 if [[ -z "$EXISTING_USERS" ]]; then
@@ -23,7 +22,7 @@ if [[ -z "$EXISTING_USERS" ]]; then
     SELECTED_USER="seeduser"
 else
     echo "Existing users found: $EXISTING_USERS"
-    read -p "Enter username to use (Default: seeduser): " SELECTED_USER
+    read -p "Enter username to use [Default: seeduser]: " SELECTED_USER
     SELECTED_USER=${SELECTED_USER:-seeduser}
     if ! id "$SELECTED_USER" &>/dev/null; then
         useradd -m -s /bin/bash "$SELECTED_USER"
@@ -61,7 +60,7 @@ declare -A PORTS=(
 echo -e "\n--- Application Selection (Press Enter for Yes) ---"
 for app in "qbittorrent" "sonarr" "radarr" "bazarr" "listenarr" "prowlarr" "jackett"; do
     read -p "Install $app? [Y/n]: " choice
-    choice=${choice:-y} # Default to 'y' if Enter is pressed
+    choice=${choice:-y}
     if [[ "$choice" =~ ^[Nn]$ ]]; then
         APPS[$app]=false
     else
@@ -69,9 +68,14 @@ for app in "qbittorrent" "sonarr" "radarr" "bazarr" "listenarr" "prowlarr" "jack
     fi
 done
 
-# 5. Directory Structure
+# 5. Directory Structure & Permission Prep
+echo "Preparing directories..."
 mkdir -p "$DOCKER_DIR" "$MEDIA_DIR/downloads" "$MEDIA_DIR/tv" "$MEDIA_DIR/movies" "$MEDIA_DIR/music"
-chown -R "$PUID:$PGID" "$DOCKER_DIR" "$MEDIA_DIR"
+
+# Specific config folders for apps to prevent permission collisions
+for app in "${!PORTS[@]}"; do
+    mkdir -p "$DOCKER_DIR/$app"
+done
 
 # 6. Dynamic Docker Compose Generation
 cat <<EOF > "$DOCKER_DIR/docker-compose.yml"
@@ -88,7 +92,6 @@ if [[ "${APPS[qbittorrent]}" == true ]]; then
       - PUID=$PUID
       - PGID=$PGID
       - TZ=UTC
-      - WEBUI_PORT=8080
     volumes:
       - $DOCKER_DIR/qbittorrent:/config
       - $MEDIA_DIR/downloads:/downloads
@@ -118,7 +121,7 @@ if [[ "${APPS[listenarr]}" == true ]]; then
 EOF
 fi
 
-# Helper for LinuxServer images
+# Function for LinuxServer images
 add_ls_container() {
     local name=$1
     local port=$2
@@ -147,24 +150,25 @@ EOF
 [[ "${APPS[prowlarr]}" == true ]] && add_ls_container "prowlarr" "9696" "downloads"
 [[ "${APPS[jackett]}" == true ]] && add_ls_container "jackett" "9117" "downloads"
 
-chown "$PUID:$PGID" "$DOCKER_DIR/docker-compose.yml"
+# Finalize ownership before startup
+chown -R "$PUID:$PGID" "$DOCKER_DIR" "$MEDIA_DIR"
 
-# 7. Post-Deployment Intelligence
-echo -e "\nDeploying containers..."
+# 7. Deployment
+echo -e "\nDeploying containers and cleaning orphans..."
 cd "$DOCKER_DIR"
-docker compose up -d
+docker compose up -d --remove-orphans
 
-# Scrape qBittorrent password
+# 8. Post-Deployment Intelligence
 if [[ "${APPS[qbittorrent]}" == true ]]; then
-    echo "Extracting initial qBittorrent password..."
-    sleep 5
+    echo "Waiting for qBittorrent logs..."
+    sleep 8
     QBIT_PASS=$(docker logs qbittorrent 2>&1 | grep "password" | awk '{print $NF}' | head -n 1)
     echo -e "\n--- qBittorrent Credentials ---"
     echo "Username: admin"
-    echo "Password: $QBIT_PASS"
+    echo "Password: ${QBIT_PASS:-[Check logs manually: docker logs qbittorrent]}"
 fi
 
-# 8. Status Dashboard
+# 9. Status Dashboard
 INTERNAL_IP=$(hostname -I | awk '{print $1}')
 EXTERNAL_IP=$(curl -s --max-time 5 https://ifconfig.me || echo "N/A")
 
@@ -175,6 +179,6 @@ echo "---------------------------"
 
 for app in "qbittorrent" "sonarr" "radarr" "bazarr" "listenarr" "prowlarr" "jackett"; do
     if [[ "${APPS[$app]}" == true ]]; then
-        printf "%-12s : http://%s:%s\n" "$app" "$INTERNAL_IP" "${PORTS[$app]}"
-    fi
-done
+        STATUS=$(docker inspect -f '{{.State.Status}}' "$app" 2>/dev/null || echo "not found")
+        printf "%-12s : http://%s:%-5s [%s]\n" "$app" "$INTERNAL_IP" "${PORTS[$app]}" "$STATUS"
+    done
