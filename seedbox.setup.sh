@@ -45,7 +45,7 @@ if [ -f "$COMPOSE_FILE" ]; then
   read -p "Existing Docker setup found. Do CLEAN install? (y/n): " CLEAN
   if [[ "$CLEAN" == "y" ]]; then
     echo "🔹 Removing old Docker setup..."
-    docker-compose -f "$COMPOSE_FILE" down || true
+    docker compose -f "$COMPOSE_FILE" down || true
     rm -rf "$COMPOSE_DIR"
     echo "✅ Clean install prepared"
   fi
@@ -60,12 +60,11 @@ if ! command -v docker >/dev/null 2>&1; then
 fi
 echo "✅ Docker installed"
 
-echo "🔹 Installing docker-compose..."
-if ! command -v docker-compose >/dev/null 2>&1; then
-  apt update -y
-  apt install -y docker-compose
-fi
-echo "✅ docker-compose ready"
+# FIX: Install the modern Docker Compose plugin instead of the old apt package
+echo "🔹 Installing docker-compose-plugin..."
+apt update -y
+apt install -y docker-compose-plugin
+echo "✅ Docker Compose plugin ready"
 
 usermod -aG docker "$SEEDUSER"
 
@@ -159,7 +158,8 @@ echo "✅ Docker Compose file created at $COMPOSE_FILE"
 # START CONTAINERS
 # -------------------------
 echo "🔹 Starting containers..."
-docker-compose -f "$COMPOSE_FILE" up -d
+# Changed from docker-compose to docker compose
+docker compose -f "$COMPOSE_FILE" up -d
 sleep 10
 
 # -------------------------
