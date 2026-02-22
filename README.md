@@ -51,5 +51,8 @@ To Uninstall evrything and clean up:
 sudo bash -c "$(wget -O- https://raw.githubusercontent.com/teelge/SeedBoxAuto/main/uninstall.sh | tr -d '\r')"
 ```
 
-
+## Get qbittorent default username and password 
+```bash
+docker logs -f qbittorrent
+```
 
