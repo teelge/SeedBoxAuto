@@ -12,7 +12,7 @@ if [[ $EUID -ne 0 ]]; then
    exit 1
 fi
 
-# --- NEW: Architecture Detection ---
+# --- Architecture Detection ---
 ARCH=$(uname -m)
 case $ARCH in
     x86_64)  ARCH_TYPE="amd64" ;;
@@ -65,7 +65,7 @@ if [ -d "$DOCKER_DIR" ]; then
     fi
 fi
 
-# 4. Dependency Management (Universal OS Check)
+# 4. Dependency Management
 echo "Verifying Docker installation..."
 if ! command -v docker &> /dev/null; then
     if command -v apt-get &> /dev/null; then
@@ -76,7 +76,6 @@ if ! command -v docker &> /dev/null; then
     fi
 fi
 
-# Ensure docker-compose-plugin is present (Required for 'docker compose' command)
 if ! docker compose version &> /dev/null; then
     if command -v apt-get &> /dev/null; then
         apt-get update && apt-get install -y docker-compose-plugin
@@ -89,12 +88,14 @@ usermod -aG docker "$SELECTED_USER"
 declare -A APPS
 declare -A PORTS=( 
     ["qbittorrent"]="8080" ["sonarr"]="8989" ["radarr"]="7878" 
-    ["bazarr"]="6767" ["listenarr"]="4545" ["prowlarr"]="9696" ["jackett"]="9117" 
+    ["bazarr"]="6767" ["listenarr"]="4545" ["prowlarr"]="9696" 
+    ["jackett"]="9117" ["jellyfin"]="8096" ["flaresolverr"]="8191"
 )
 
 echo ""
 echo "--- Application Selection (Press Enter to accept ALL defaults) ---"
-for app in "qbittorrent" "sonarr" "radarr" "bazarr" "listenarr" "prowlarr" "jackett"; do
+# App list matches the PORTS keys
+for app in "${!PORTS[@]}"; do
     read -p "Install $app? [Y/n (default: Y)]: " choice
     choice=${choice:-y}
     if [[ "$choice" =~ ^[Nn]$ ]]; then
@@ -115,6 +116,7 @@ cat <<EOF > "$DOCKER_DIR/docker-compose.yml"
 services:
 EOF
 
+# -- qBittorrent --
 if [[ "${APPS[qbittorrent]}" == true ]]; then
     cat <<EOF >> "$DOCKER_DIR/docker-compose.yml"
   qbittorrent:
@@ -135,8 +137,46 @@ if [[ "${APPS[qbittorrent]}" == true ]]; then
 EOF
 fi
 
+# -- Jellyfin --
+if [[ "${APPS[jellyfin]}" == true ]]; then
+    cat <<EOF >> "$DOCKER_DIR/docker-compose.yml"
+  jellyfin:
+    image: lscr.io/linuxserver/jellyfin:latest
+    container_name: jellyfin
+    environment:
+      - PUID=$PUID
+      - PGID=$PGID
+      - TZ=UTC
+    volumes:
+      - $DOCKER_DIR/jellyfin:/config
+      - $MEDIA_DIR/tv:/data/tvshows
+      - $MEDIA_DIR/movies:/data/movies
+      - $MEDIA_DIR/audio:/data/music
+    ports:
+      - 8096:8096
+    devices:
+      - /dev/dri:/dev/dri
+    restart: unless-stopped
+EOF
+fi
+
+# -- FlareSolverr --
+if [[ "${APPS[flaresolverr]}" == true ]]; then
+    cat <<EOF >> "$DOCKER_DIR/docker-compose.yml"
+  flaresolverr:
+    image: ghcr.io/flaresolverr/flaresolverr:latest
+    container_name: flaresolverr
+    environment:
+      - LOG_LEVEL=info
+      - TZ=UTC
+    ports:
+      - 8191:8191
+    restart: unless-stopped
+EOF
+fi
+
+# -- Listenarr --
 if [[ "${APPS[listenarr]}" == true ]]; then
-    # Note: Using standard linuxserver/airsonic-madsonic style logic or specific multi-arch images
     cat <<EOF >> "$DOCKER_DIR/docker-compose.yml"
   listenarr:
     image: ghcr.io/therobbiedavis/listenarr:canary
@@ -153,6 +193,7 @@ if [[ "${APPS[listenarr]}" == true ]]; then
 EOF
 fi
 
+# Generic LinuxServer.io Container Function
 add_ls_container() {
     local name=$1 port=$2 vol=$3
     cat <<EOF >> "$DOCKER_DIR/docker-compose.yml"
@@ -187,8 +228,8 @@ docker compose up -d --remove-orphans
 # 8. Post-Deployment Intelligence
 if [[ "${APPS[qbittorrent]}" == true ]]; then
     echo ""
-    echo "Retrieving initial qBittorrent credentials..."
-    sleep 10
+    echo "Waiting for qBittorrent to generate credentials..."
+    sleep 20
     QBIT_PASS=$(docker logs qbittorrent 2>&1 | grep "password" | awk '{print $NF}' | head -n 1)
     echo "--- qBittorrent ---"
     echo "Username: admin"
@@ -199,9 +240,9 @@ fi
 INTERNAL_IP=$(hostname -I | awk '{print $1}')
 echo ""
 echo "------------------------------------------------"
-echo "           ✅ DEPLOYMENT SUMMARY                "
+echo "            ✅ DEPLOYMENT SUMMARY               "
 echo "------------------------------------------------"
-for app in "qbittorrent" "sonarr" "radarr" "bazarr" "listenarr" "prowlarr" "jackett"; do
+for app in "qbittorrent" "sonarr" "radarr" "bazarr" "listenarr" "prowlarr" "jackett" "jellyfin" "flaresolverr"; do
     if [[ "${APPS[$app]}" == true ]]; then
         STATUS=$(docker inspect -f '{{.State.Status}}' "$app" 2>/dev/null || echo "not found")
         printf "%-12s : http://%s:%-5s [%s]\n" "$app" "$INTERNAL_IP" "${PORTS[$app]}" "$STATUS"
