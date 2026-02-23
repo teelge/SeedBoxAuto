@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # --- SeedboxAuto: The Ultimate Media Stack Deployer ---
-# Features: Visible Pull Progress, qBit Credential Check, Single-Data Mount
+# Features: Plex & Audiobookshelf Added, Visible Pull, Fast-Cred-Check
 
 set -u
 
@@ -41,16 +41,17 @@ if ! command -v docker &> /dev/null; then
 fi
 usermod -aG docker "$SELECTED_USER"
 
-# 5. App Selection
+# 5. App Selection (Plex and Audiobookshelf Added)
 declare -A APPS
 declare -A PORTS=( 
     ["qbittorrent"]="8080" ["sonarr"]="8989" ["radarr"]="7878" 
     ["bazarr"]="6767" ["listenarr"]="4545" ["prowlarr"]="9696" 
     ["jackett"]="9117" ["jellyfin"]="8096" ["flaresolverr"]="8191"
     ["lidarr"]="8686" ["lazylibrarian"]="5299" ["mylar3"]="8090"
+    ["plex"]="32400" ["audiobookshelf"]="8000"
 )
 
-APP_ORDER=("qbittorrent" "prowlarr" "flaresolverr" "sonarr" "radarr" "lidarr" "bazarr" "lazylibrarian" "mylar3" "listenarr" "jackett" "jellyfin")
+APP_ORDER=("qbittorrent" "prowlarr" "flaresolverr" "sonarr" "radarr" "lidarr" "bazarr" "lazylibrarian" "mylar3" "listenarr" "jackett" "jellyfin" "plex" "audiobookshelf")
 
 echo ""
 echo "--- Application Selection ---"
@@ -60,8 +61,8 @@ for app in "${APP_ORDER[@]}"; do
     [[ "$choice" =~ ^[Nn]$ ]] && APPS[$app]=false || APPS[$app]=true
 done
 
-# 6. Directories
-mkdir -p "$DOCKER_DIR" "$MEDIA_DIR"/{downloads,tv,movies,audio,music,books,comics}
+# 6. Directories (Added audiobooks/podcasts)
+mkdir -p "$DOCKER_DIR" "$MEDIA_DIR"/{downloads,tv,movies,audio,music,books,comics,audiobooks,podcasts}
 for app in "${APP_ORDER[@]}"; do 
     mkdir -p "$DOCKER_DIR/$app"
 done
@@ -100,6 +101,45 @@ EOF
 [[ "${APPS[lazylibrarian]}" == true ]] && add_ls_container "lazylibrarian" "5299"
 [[ "${APPS[mylar3]}" == true ]] && add_ls_container "mylar3" "8090"
 
+# --- Specialty: Plex ---
+if [[ "${APPS[plex]}" == true ]]; then
+    cat <<EOF >> "$DOCKER_DIR/docker-compose.yml"
+  plex:
+    image: lscr.io/linuxserver/plex:latest
+    container_name: plex
+    network_mode: host
+    environment:
+      - PUID=$PUID
+      - PGID=$PGID
+      - VERSION=docker
+    volumes:
+      - $DOCKER_DIR/plex:/config
+      - $MEDIA_DIR:/data
+    restart: unless-stopped
+EOF
+fi
+
+# --- Specialty: Audiobookshelf ---
+if [[ "${APPS[audiobookshelf]}" == true ]]; then
+    cat <<EOF >> "$DOCKER_DIR/docker-compose.yml"
+  audiobookshelf:
+    image: ghcr.io/advplyr/audiobookshelf:latest
+    container_name: audiobookshelf
+    environment:
+      - AUDIOBOOKSHELF_UID=$PUID
+      - AUDIOBOOKSHELF_GID=$PGID
+    volumes:
+      - $DOCKER_DIR/audiobookshelf/config:/config
+      - $DOCKER_DIR/audiobookshelf/metadata:/metadata
+      - $MEDIA_DIR/audiobooks:/audiobooks
+      - $MEDIA_DIR/podcasts:/podcasts
+    ports:
+      - 8000:80
+    restart: unless-stopped
+EOF
+fi
+
+# --- Specialty: Others ---
 if [[ "${APPS[flaresolverr]}" == true ]]; then
     cat <<EOF >> "$DOCKER_DIR/docker-compose.yml"
   flaresolverr:
@@ -138,9 +178,8 @@ chmod -R 775 "$MEDIA_DIR"
 cd "$DOCKER_DIR"
 
 echo ""
-echo "--- 📦 PULLING IMAGES (Real-time Progress) ---"
-# Force TTY and use plain output to ensure bars are visible in standard terminals
-docker compose pull --ignore-pull-failures
+echo "--- 📦 PULLING IMAGES (Visible Progress) ---"
+docker compose pull
 
 echo ""
 echo "--- 🚀 STARTING CONTAINERS ---"
