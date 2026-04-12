@@ -59,3 +59,11 @@ docker logs -f qbittorrent
 ```bash
 docker compose pull && docker compose up -d
 ```
+## Clean up the old "junk   (old docker images)
+```
+docker image prune -f
+```
+## check docker status 
+```
+docker ps
+```
