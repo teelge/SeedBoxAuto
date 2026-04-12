@@ -55,4 +55,7 @@ sudo bash -c "$(wget -O- https://raw.githubusercontent.com/teelge/SeedBoxAuto/ma
 ```bash
 docker logs -f qbittorrent
 ```
-
+## to update the apps automatically 
+```bash
+docker compose pull && docker compose up -d
+```
