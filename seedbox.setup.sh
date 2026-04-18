@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# --- SeedboxAuto: The Ultimate Media Stack Deployer ---
-# Features: Plex & Audiobookshelf Added, Visible Pull, Fast-Cred-Check
+# --- SeedboxAuto: Fixed Paths & Permissions ---
+# Features: Unified /data paths, Plex & Audiobookshelf, Visible Pull
 
 set -u
 
@@ -12,7 +12,7 @@ if [[ $EUID -ne 0 ]]; then
 fi
 
 echo "------------------------------------------------"
-echo "        🚀 STARTING SEEDBOXAUTO DEPLOY          "
+echo "         🚀 STARTING SEEDBOXAUTO DEPLOY          "
 echo "------------------------------------------------"
 
 # 2. User Setup
@@ -39,9 +39,11 @@ MEDIA_DIR="$USER_HOME/media"
 if ! command -v docker &> /dev/null; then
     curl -fsSL https://get.docker.com | sh
 fi
+# Ensure user is in docker group
+groupadd -f docker
 usermod -aG docker "$SELECTED_USER"
 
-# 5. App Selection (Plex and Audiobookshelf Added)
+# 5. App Selection
 declare -A APPS
 declare -A PORTS=( 
     ["qbittorrent"]="8080" ["sonarr"]="8989" ["radarr"]="7878" 
@@ -61,7 +63,8 @@ for app in "${APP_ORDER[@]}"; do
     [[ "$choice" =~ ^[Nn]$ ]] && APPS[$app]=false || APPS[$app]=true
 done
 
-# 6. Directories (Added audiobooks/podcasts)
+# 6. Directories
+# CRITICAL: We ensure downloads is a SUBFOLDER of /data so hardlinks work
 mkdir -p "$DOCKER_DIR" "$MEDIA_DIR"/{downloads,tv,movies,audio,music,books,comics,audiobooks,podcasts}
 for app in "${APP_ORDER[@]}"; do 
     mkdir -p "$DOCKER_DIR/$app"
@@ -72,6 +75,7 @@ cat <<EOF > "$DOCKER_DIR/docker-compose.yml"
 services:
 EOF
 
+# Standard LinuxServer template
 add_ls_container() {
     local name=$1 port=$2 img=${3:-lscr.io/linuxserver/$1:latest}
     cat <<EOF >> "$DOCKER_DIR/docker-compose.yml"
@@ -91,7 +95,28 @@ add_ls_container() {
 EOF
 }
 
-[[ "${APPS[qbittorrent]}" == true ]] && add_ls_container "qbittorrent" "8080"
+# Specific fix for qBittorrent to use the same /data mount
+if [[ "${APPS[qbittorrent]}" == true ]]; then
+    cat <<EOF >> "$DOCKER_DIR/docker-compose.yml"
+  qbittorrent:
+    image: lscr.io/linuxserver/qbittorrent:latest
+    container_name: qbittorrent
+    environment:
+      - PUID=$PUID
+      - PGID=$PGID
+      - TZ=UTC
+      - WEBUI_PORT=8080
+    volumes:
+      - $DOCKER_DIR/qbittorrent:/config
+      - $MEDIA_DIR:/data
+    ports:
+      - 8080:8080
+      - 6881:6881
+      - 6881:6881/udp
+    restart: unless-stopped
+EOF
+fi
+
 [[ "${APPS[sonarr]}" == true ]] && add_ls_container "sonarr" "8989"
 [[ "${APPS[radarr]}" == true ]] && add_ls_container "radarr" "7878"
 [[ "${APPS[bazarr]}" == true ]] && add_ls_container "bazarr" "6767"
@@ -169,45 +194,28 @@ fi
 
 if [[ "${APPS[jellyfin]}" == true ]]; then
     add_ls_container "jellyfin" "8096"
-    [[ -d /dev/dri ]] && echo "    devices: [\"/dev/dri:/dev/dri\"]" >> "$DOCKER_DIR/docker-compose.yml"
+    if [[ -d /dev/dri ]]; then
+       sed -i "/jellyfin:/a \    devices:\n      - /dev/dri:/dev/dri" "$DOCKER_DIR/docker-compose.yml"
+    fi
 fi
 
-# 8. Permissions, Pull (VISIBLE), and Start
+# 8. Permissions and Start
 chown -R "$PUID:$PGID" "$DOCKER_DIR" "$MEDIA_DIR"
 chmod -R 775 "$MEDIA_DIR"
 cd "$DOCKER_DIR"
 
-echo ""
-echo "--- 📦 PULLING IMAGES (Visible Progress) ---"
+echo "--- 📦 PULLING IMAGES ---"
 docker compose pull
 
-echo ""
 echo "--- 🚀 STARTING CONTAINERS ---"
 docker compose up -d --remove-orphans
 
-# 9. Smart Summary
-echo ""
+# 9. Summary
 echo "------------------------------------------------"
-echo "            ✅ DEPLOYMENT SUMMARY               "
+echo "            ✅ DEPLOYMENT COMPLETE              "
 echo "------------------------------------------------"
 INTERNAL_IP=$(hostname -I | awk '{print $1}')
 
-if [[ "${APPS[qbittorrent]}" == true ]]; then
-    echo "Retrieving qBittorrent password..."
-    for i in {1..10}; do
-        QBIT_PASS=$(docker logs qbittorrent 2>&1 | grep "password" | awk '{print $NF}' | head -n 1)
-        [[ ! -z "$QBIT_PASS" ]] && break
-        sleep 2
-    done
-    echo "qBittorrent: admin | ${QBIT_PASS:-Check 'docker logs qbittorrent'}"
-    echo "URL: http://$INTERNAL_IP:8080"
-    echo "------------------------------------------------"
-fi
-
-for app in "${APP_ORDER[@]}"; do
-    if [[ "${APPS[$app]}" == true ]]; then
-        STATUS=$(docker inspect -f '{{.State.Status}}' "$app" 2>/dev/null || echo "not found")
-        printf "%-15s : http://%s:%-5s [%s]\n" "$app" "$INTERNAL_IP" "${PORTS[$app]}" "$STATUS"
-    fi
-done
+echo "IMPORTANT: In qBittorrent Web UI, set your download path to: /data/downloads"
+echo "In Sonarr/Radarr, set your root folder to: /data/tv or /data/movies"
 echo "------------------------------------------------"
