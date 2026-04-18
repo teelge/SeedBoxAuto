@@ -1,8 +1,6 @@
 #!/bin/bash
 
-# --- SeedboxAuto: Fixed Paths & Permissions ---
-# Features: Unified /data paths, Plex & Audiobookshelf, Visible Pull
-
+# --- SeedboxAuto: Full Version with Status & Path Fixes ---
 set -u
 
 # 1. Root Check
@@ -39,7 +37,6 @@ MEDIA_DIR="$USER_HOME/media"
 if ! command -v docker &> /dev/null; then
     curl -fsSL https://get.docker.com | sh
 fi
-# Ensure user is in docker group
 groupadd -f docker
 usermod -aG docker "$SELECTED_USER"
 
@@ -64,7 +61,6 @@ for app in "${APP_ORDER[@]}"; do
 done
 
 # 6. Directories
-# CRITICAL: We ensure downloads is a SUBFOLDER of /data so hardlinks work
 mkdir -p "$DOCKER_DIR" "$MEDIA_DIR"/{downloads,tv,movies,audio,music,books,comics,audiobooks,podcasts}
 for app in "${APP_ORDER[@]}"; do 
     mkdir -p "$DOCKER_DIR/$app"
@@ -75,7 +71,6 @@ cat <<EOF > "$DOCKER_DIR/docker-compose.yml"
 services:
 EOF
 
-# Standard LinuxServer template
 add_ls_container() {
     local name=$1 port=$2 img=${3:-lscr.io/linuxserver/$1:latest}
     cat <<EOF >> "$DOCKER_DIR/docker-compose.yml"
@@ -95,7 +90,7 @@ add_ls_container() {
 EOF
 }
 
-# Specific fix for qBittorrent to use the same /data mount
+# --- Specific App Definitions ---
 if [[ "${APPS[qbittorrent]}" == true ]]; then
     cat <<EOF >> "$DOCKER_DIR/docker-compose.yml"
   qbittorrent:
@@ -126,7 +121,6 @@ fi
 [[ "${APPS[lazylibrarian]}" == true ]] && add_ls_container "lazylibrarian" "5299"
 [[ "${APPS[mylar3]}" == true ]] && add_ls_container "mylar3" "8090"
 
-# --- Specialty: Plex ---
 if [[ "${APPS[plex]}" == true ]]; then
     cat <<EOF >> "$DOCKER_DIR/docker-compose.yml"
   plex:
@@ -144,7 +138,6 @@ if [[ "${APPS[plex]}" == true ]]; then
 EOF
 fi
 
-# --- Specialty: Audiobookshelf ---
 if [[ "${APPS[audiobookshelf]}" == true ]]; then
     cat <<EOF >> "$DOCKER_DIR/docker-compose.yml"
   audiobookshelf:
@@ -164,7 +157,6 @@ if [[ "${APPS[audiobookshelf]}" == true ]]; then
 EOF
 fi
 
-# --- Specialty: Others ---
 if [[ "${APPS[flaresolverr]}" == true ]]; then
     cat <<EOF >> "$DOCKER_DIR/docker-compose.yml"
   flaresolverr:
@@ -194,28 +186,47 @@ fi
 
 if [[ "${APPS[jellyfin]}" == true ]]; then
     add_ls_container "jellyfin" "8096"
-    if [[ -d /dev/dri ]]; then
-       sed -i "/jellyfin:/a \    devices:\n      - /dev/dri:/dev/dri" "$DOCKER_DIR/docker-compose.yml"
-    fi
+    [[ -d /dev/dri ]] && echo "    devices: [\"/dev/dri:/dev/dri\"]" >> "$DOCKER_DIR/docker-compose.yml"
 fi
 
-# 8. Permissions and Start
+# 8. Permissions and Execution
 chown -R "$PUID:$PGID" "$DOCKER_DIR" "$MEDIA_DIR"
 chmod -R 775 "$MEDIA_DIR"
 cd "$DOCKER_DIR"
 
+echo ""
 echo "--- 📦 PULLING IMAGES ---"
 docker compose pull
 
+echo ""
 echo "--- 🚀 STARTING CONTAINERS ---"
 docker compose up -d --remove-orphans
 
-# 9. Summary
+# 9. Smart Summary & Info Extraction
+echo ""
 echo "------------------------------------------------"
-echo "            ✅ DEPLOYMENT COMPLETE              "
+echo "            ✅ DEPLOYMENT SUMMARY               "
 echo "------------------------------------------------"
 INTERNAL_IP=$(hostname -I | awk '{print $1}')
 
-echo "IMPORTANT: In qBittorrent Web UI, set your download path to: /data/downloads"
-echo "In Sonarr/Radarr, set your root folder to: /data/tv or /data/movies"
+if [[ "${APPS[qbittorrent]}" == true ]]; then
+    echo "Retrieving qBittorrent password..."
+    QBIT_PASS=""
+    for i in {1..10}; do
+        QBIT_PASS=$(docker logs qbittorrent 2>&1 | grep "password" | awk '{print $NF}' | head -n 1)
+        [[ ! -z "$QBIT_PASS" ]] && break
+        sleep 2
+    done
+    echo "qBittorrent: admin | ${QBIT_PASS:-Check 'docker logs qbittorrent'}"
+    echo "URL: http://$INTERNAL_IP:8080"
+    echo "IMPORTANT: Set qBit Download Path to: /data/downloads"
+    echo "------------------------------------------------"
+fi
+
+for app in "${APP_ORDER[@]}"; do
+    if [[ "${APPS[$app]}" == true ]]; then
+        STATUS=$(docker inspect -f '{{.State.Status}}' "$app" 2>/dev/null || echo "not found")
+        printf "%-15s : http://%s:%-5s [%s]\n" "$app" "$INTERNAL_IP" "${PORTS[$app]}" "$STATUS"
+    fi
+done
 echo "------------------------------------------------"
