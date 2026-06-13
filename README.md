@@ -55,9 +55,9 @@ sudo bash -c "$(wget -O- https://raw.githubusercontent.com/teelge/SeedBoxAuto/ma
 ```bash
 docker logs -f qbittorrent
 ```
-## to update the apps automatically 
+## to update the apps automatically (Wait! after using this command)
 ```bash
-docker compose pull && docker compose up -d
+cd "$(dirname "$(find ~ -name "docker-compose.yml" 2>/dev/null | head -n 1)")" && docker compose pull && docker compose up -d
 ```
 ## Clean up the old "junk   (old docker images)
 ```
